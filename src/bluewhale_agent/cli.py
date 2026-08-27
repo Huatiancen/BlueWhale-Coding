@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from pathlib import Path
+
+import uvicorn
+
+from bluewhale_agent.web.app import create_app
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -23,10 +28,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Parse startup options for the local BlueWhale Web application."""
-    args = build_parser().parse_args(argv)
-    print(
-        f"BlueWhale serve requested for workspace {args.workspace} "
-        f"on http://{args.host}:{args.port}"
-    )
+    """Validate startup options and run the local BlueWhale Web application."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    workspace = Path(args.workspace).resolve(strict=False)
+    if not workspace.is_dir():
+        parser.error(f"workspace does not exist or is not a directory: {args.workspace}")
+    print(f"BlueWhale serving workspace {workspace} on http://{args.host}:{args.port}")
+    uvicorn.run(create_app(workspace=workspace), host=args.host, port=args.port)
     return 0

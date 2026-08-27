@@ -93,6 +93,8 @@ class AgentLoop:
         cancel_event: asyncio.Event | None = None,
         clock: Callable[[], float] = monotonic,
         max_context_chars: int = 50_000,
+        trajectory: TrajectoryStore | None = None,
+        event_sink: Callable[[StoredEvent], None] | None = None,
     ) -> None:
         self._run_id = run_id
         self._provider = provider
@@ -121,7 +123,10 @@ class AgentLoop:
         self._workspace_map = WorkspaceMapBuilder(self._paths)
         self._ledger = EvidenceLedger()
         self._gate = VerificationGate(max_repair_attempts=self._limits.max_repair_attempts)
-        self._store = TrajectoryStore(self._paths.root, run_id)
+        self._store = trajectory or TrajectoryStore(self._paths.root, run_id)
+        if self._store.run_id != run_id:
+            raise ValueError("Trajectory store run id must match the agent run id")
+        self._event_sink = event_sink
         self._state: AgentState | None = None
         self._task = ""
         self._started_at = 0.0
@@ -354,7 +359,10 @@ class AgentLoop:
         )
 
     def _emit(self, kind: EventKind, payload: dict[str, object]) -> StoredEvent:
-        return self._store.append(RunEvent(run_id=self._run_id, kind=kind, payload=payload))
+        stored = self._store.append(RunEvent(run_id=self._run_id, kind=kind, payload=payload))
+        if self._event_sink is not None:
+            self._event_sink(stored)
+        return stored
 
     def _state_required(self) -> AgentState:
         if self._state is None:

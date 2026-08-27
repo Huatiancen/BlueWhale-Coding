@@ -1,0 +1,225 @@
+from __future__ import annotations
+
+import asyncio
+import json
+from collections.abc import AsyncIterator
+from pathlib import Path
+
+import httpx
+import pytest
+import pytest_asyncio
+from fastapi import FastAPI
+
+from bluewhale_agent.domain.models import ModelResponse
+from bluewhale_agent.web.app import create_app
+from bluewhale_agent.web.schemas import RunCreateRequest
+from bluewhale_agent.web.sessions import SessionManager
+from tests.fakes import FakeModelProvider
+
+
+class BlockingProvider:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+
+    async def complete(
+        self,
+        _messages: list[object],
+        _tools: list[dict[str, object]],
+    ) -> ModelResponse:
+        self.started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+
+@pytest.fixture
+def completed_app(tmp_path: Path) -> FastAPI:
+    return create_app(
+        workspace=tmp_path,
+        provider_factory=lambda: FakeModelProvider(
+            [ModelResponse(content="Inspection complete.", finish_reason="stop")]
+        ),
+    )
+
+
+@pytest_asyncio.fixture
+async def client(completed_app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
+    transport = httpx.ASGITransport(app=completed_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as value:
+        yield value
+
+
+@pytest.mark.asyncio
+async def test_health_create_list_and_get_run(client: httpx.AsyncClient) -> None:
+    health = await client.get("/api/health")
+    created = await client.post(
+        "/api/runs",
+        json={"run_id": "run-one", "task": "Inspect this project", "workspace": "."},
+    )
+    finished = await wait_for_terminal(client, "run-one")
+    listed = await client.get("/api/runs")
+    fetched = await client.get("/api/runs/run-one")
+
+    assert health.status_code == 200
+    assert health.json() == {"status": "ok"}
+    assert created.status_code == 202
+    assert created.json()["id"] == "run-one"
+    assert finished["status"] == "completed"
+    assert finished["final_answer"] == "Inspection complete."
+    assert [item["id"] for item in listed.json()] == ["run-one"]
+    assert fetched.json() == finished
+
+
+@pytest.mark.asyncio
+async def test_duplicate_unknown_and_unsafe_workspace_have_stable_errors(
+    client: httpx.AsyncClient,
+) -> None:
+    first = await client.post("/api/runs", json={"run_id": "same-id", "task": "First"})
+    await wait_for_terminal(client, "same-id")
+    duplicate = await client.post("/api/runs", json={"run_id": "same-id", "task": "Second"})
+    unknown_get = await client.get("/api/runs/missing")
+    unknown_stop = await client.post("/api/runs/missing/stop")
+    unknown_events = await client.get("/api/runs/missing/events")
+    unsafe = await client.post(
+        "/api/runs", json={"run_id": "unsafe", "task": "Escape", "workspace": ".."}
+    )
+    protected = await client.post(
+        "/api/runs",
+        json={
+            "run_id": "protected",
+            "task": "Read trajectories",
+            "workspace": ".bluewhale",
+        },
+    )
+
+    assert first.status_code == 202
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"] == "Run already exists: same-id"
+    assert unknown_get.status_code == 404
+    assert unknown_stop.status_code == 404
+    assert unknown_events.status_code == 404
+    assert unsafe.status_code == 400
+    assert unsafe.json()["detail"] == "Workspace must stay inside the configured root"
+    assert protected.status_code == 400
+    assert protected.json()["detail"] == "Workspace is protected"
+
+
+@pytest.mark.asyncio
+async def test_only_one_run_can_be_active_and_stop_is_persisted(tmp_path: Path) -> None:
+    provider = BlockingProvider()
+    app = create_app(workspace=tmp_path, provider_factory=lambda: provider)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        first = await client.post("/api/runs", json={"run_id": "active", "task": "Wait forever"})
+        await asyncio.wait_for(provider.started.wait(), timeout=1)
+        conflict = await client.post("/api/runs", json={"run_id": "other", "task": "Cannot start"})
+        stopped = await client.post("/api/runs/active/stop")
+        fetched = await client.get("/api/runs/active")
+
+    assert first.status_code == 202
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == "Another run is already active"
+    assert stopped.status_code == 200
+    assert stopped.json()["status"] == "stopped"
+    assert stopped.json()["stop_reason"] == "user_stopped"
+    assert fetched.json() == stopped.json()
+
+
+@pytest.mark.asyncio
+async def test_sse_replays_events_after_last_event_id_without_duplicates(
+    client: httpx.AsyncClient,
+) -> None:
+    await client.post("/api/runs", json={"run_id": "sse-run", "task": "Inspect events"})
+    await wait_for_terminal(client, "sse-run")
+
+    initial = await client.get("/api/runs/sse-run/events")
+    initial_events = parse_sse(initial.text)
+    resume_after = initial_events[-2]["id"]
+    resumed = await client.get(
+        "/api/runs/sse-run/events",
+        headers={"Last-Event-ID": str(resume_after)},
+    )
+    resumed_events = parse_sse(resumed.text)
+
+    assert initial.status_code == 200
+    assert initial.headers["content-type"].startswith("text/event-stream")
+    assert initial_events
+    assert [item["id"] for item in initial_events] == sorted(
+        {item["id"] for item in initial_events}
+    )
+    assert [item["id"] for item in resumed_events] == [initial_events[-1]["id"]]
+    assert all(item["id"] > resume_after for item in resumed_events)
+    assert all(item["event"] == item["data"]["event"]["kind"] for item in initial_events)
+
+
+@pytest.mark.asyncio
+async def test_invalid_last_event_id_is_rejected(client: httpx.AsyncClient) -> None:
+    await client.post("/api/runs", json={"run_id": "cursor-run", "task": "Inspect events"})
+    await wait_for_terminal(client, "cursor-run")
+
+    response = await client.get(
+        "/api/runs/cursor-run/events", headers={"Last-Event-ID": "not-a-number"}
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Last-Event-ID must be a non-negative integer"
+
+
+@pytest.mark.asyncio
+async def test_sse_heartbeat_is_not_written_to_trajectory(tmp_path: Path) -> None:
+    provider = BlockingProvider()
+    manager = SessionManager(
+        workspace_root=tmp_path,
+        provider_factory=lambda: provider,
+        heartbeat_seconds=0.01,
+    )
+    session = await manager.create(RunCreateRequest(run_id="heartbeat", task="Wait for heartbeat"))
+    await asyncio.wait_for(provider.started.wait(), timeout=1)
+    existing = session.trajectory.events_after(0)
+    stream = manager.stream_events("heartbeat", existing[-1].sequence)
+
+    heartbeat = await asyncio.wait_for(anext(stream), timeout=1)
+
+    assert heartbeat == ": heartbeat\n\n"
+    assert session.trajectory.events_after(0) == existing
+    await stream.aclose()
+    await manager.stop("heartbeat")
+
+
+@pytest.mark.asyncio
+async def test_provider_configuration_error_is_reported_as_503(tmp_path: Path) -> None:
+    def invalid_provider() -> FakeModelProvider:
+        raise ValueError("DEEPSEEK_API_KEY is required")
+
+    app = create_app(workspace=tmp_path, provider_factory=invalid_provider)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/api/runs", json={"task": "Inspect"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "DEEPSEEK_API_KEY is required"
+
+
+async def wait_for_terminal(client: httpx.AsyncClient, run_id: str) -> dict[str, object]:
+    for _ in range(100):
+        response = await client.get(f"/api/runs/{run_id}")
+        body = response.json()
+        if body["status"] in {"completed", "failed", "stopped"}:
+            return body
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"run did not finish: {run_id}")
+
+
+def parse_sse(body: str) -> list[dict[str, object]]:
+    parsed: list[dict[str, object]] = []
+    for block in body.strip().split("\n\n"):
+        if not block or block.startswith(":"):
+            continue
+        fields = dict(line.split(": ", 1) for line in block.splitlines())
+        parsed.append(
+            {
+                "id": int(fields["id"]),
+                "event": fields["event"],
+                "data": json.loads(fields["data"]),
+            }
+        )
+    return parsed
