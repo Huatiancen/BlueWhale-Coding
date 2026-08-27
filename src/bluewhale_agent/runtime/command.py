@@ -86,12 +86,14 @@ class CommandRuntime:
         artifact = self._new_artifact_path()
         collector = _OutputCollector(self._max_output_bytes)
         started = monotonic()
+        environment = self._sanitized_environment()
+        environment["PYTHONPYCACHEPREFIX"] = str(artifact.with_suffix(".pycache"))
 
         try:
             process = await asyncio.create_subprocess_exec(
                 *argv,
                 cwd=self._workspace,
-                env=self._sanitized_environment(),
+                env=environment,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,

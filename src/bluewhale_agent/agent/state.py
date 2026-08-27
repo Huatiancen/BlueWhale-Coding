@@ -69,10 +69,35 @@ class AgentState(BaseModel):
             self.status = RunStatus.STOPPED
             self.stop_reason = StopReason.STEP_LIMIT
 
+    def record_model_call(self) -> None:
+        """Count a model call; the controller enforces the limit before the next call."""
+        if self.status not in {RunStatus.RUNNING, RunStatus.VERIFYING}:
+            raise InvalidTransition(
+                f"Cannot record a model call while the run is {self.status.name}."
+            )
+        self.steps_taken += 1
+
+    def finish(self, reason: StopReason, *, verified: bool | None = None) -> None:
+        """Apply one deterministic terminal reason selected by the controller."""
+        if not self.can_continue:
+            raise InvalidTransition(f"Run is already terminal: {self.status.name}.")
+        self.stop_reason = reason
+        self.verified = verified
+        if reason in {StopReason.COMPLETED, StopReason.PARTIALLY_VERIFIED}:
+            self.status = RunStatus.COMPLETED
+        elif reason in {
+            StopReason.API_ERROR,
+            StopReason.MODEL_PROTOCOL_ERROR,
+            StopReason.TOOL_ERROR,
+            StopReason.VERIFICATION_FAILED,
+        }:
+            self.status = RunStatus.FAILED
+        else:
+            self.status = RunStatus.STOPPED
+
     def _require_status(self, expected: RunStatus, target: RunStatus) -> None:
         if self.status is not expected:
             raise InvalidTransition(
                 f"Cannot transition from {self.status.name} to {target.name}; "
                 f"expected {expected.name}."
             )
-
