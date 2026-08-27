@@ -3,6 +3,8 @@ const EVENT_TYPES = [
   "state_changed",
   "model_response",
   "action_requested",
+  "approval_requested",
+  "approval_resolved",
   "observation_received",
   "verification_finished",
   "run_finished",
@@ -43,6 +45,16 @@ export function createRun({ task, workspace }) {
 
 export function stopRun(runId) {
   return request(`/api/runs/${encodeURIComponent(runId)}/stop`, { method: "POST" });
+}
+
+export function resolveApproval(runId, approvalId, decision) {
+  return request(
+    `/api/runs/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(approvalId)}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ decision }),
+    },
+  );
 }
 
 export function connectRunEvents(runId, handlers) {

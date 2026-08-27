@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
@@ -31,7 +31,7 @@ from bluewhale_agent.providers.base import (
 )
 from bluewhale_agent.runtime.command import RunCommandTool
 from bluewhale_agent.runtime.paths import WorkspacePaths
-from bluewhale_agent.runtime.permissions import PermissionPolicy
+from bluewhale_agent.runtime.permissions import PermissionPolicy, PermissionResult
 from bluewhale_agent.tools.base import ToolContext
 from bluewhale_agent.tools.filesystem import ListFilesTool, ReadFileTool, SearchTextTool
 from bluewhale_agent.tools.mutation import ApplyPatchTool, GetDiffTool, WriteFileTool
@@ -95,6 +95,7 @@ class AgentLoop:
         max_context_chars: int = 50_000,
         trajectory: TrajectoryStore | None = None,
         event_sink: Callable[[StoredEvent], None] | None = None,
+        approval_handler: Callable[[Action, PermissionResult], Awaitable[bool]] | None = None,
     ) -> None:
         self._run_id = run_id
         self._provider = provider
@@ -118,6 +119,7 @@ class AgentLoop:
             ],
             context=self._context,
             permission_policy=PermissionPolicy(paths=self._paths),
+            approval_handler=approval_handler,
         )
         self._context_manager = ContextManager(max_chars=max_context_chars)
         self._workspace_map = WorkspaceMapBuilder(self._paths)

@@ -13,7 +13,18 @@ from fastapi.staticfiles import StaticFiles
 from bluewhale_agent.config import Settings
 from bluewhale_agent.providers.base import ModelProvider
 from bluewhale_agent.providers.deepseek import DeepSeekProvider
-from bluewhale_agent.web.schemas import HealthResponse, RunCreateRequest, RunResponse
+from bluewhale_agent.web.approvals import (
+    ApprovalBroker,
+    ApprovalConflictError,
+    ApprovalNotFoundError,
+    ApprovalRecord,
+)
+from bluewhale_agent.web.schemas import (
+    ApprovalResolveRequest,
+    HealthResponse,
+    RunCreateRequest,
+    RunResponse,
+)
 from bluewhale_agent.web.sessions import (
     ProviderConfigurationError,
     ProviderFactory,
@@ -30,6 +41,7 @@ def create_app(
     workspace: Path,
     provider_factory: ProviderFactory | None = None,
     settings: Settings | None = None,
+    approval_timeout_seconds: float = 60.0,
 ) -> FastAPI:
     """Build an app whose agent runs are restricted to one configured root."""
 
@@ -38,10 +50,12 @@ def create_app(
     def default_provider_factory() -> ModelProvider:
         return DeepSeekProvider(selected_settings)
 
+    approvals = ApprovalBroker(timeout_seconds=approval_timeout_seconds)
     manager = SessionManager(
         workspace_root=workspace,
         provider_factory=provider_factory or default_provider_factory,
         limits=selected_settings.limits,
+        approval_broker=approvals,
     )
 
     @asynccontextmanager
@@ -51,6 +65,7 @@ def create_app(
 
     app = FastAPI(title="BlueWhale Coding Agent", lifespan=lifespan)
     app.state.sessions = manager
+    app.state.approvals = approvals
     static_directory = Path(__file__).parent / "static"
     app.mount("/static", StaticFiles(directory=static_directory), name="static")
 
@@ -93,6 +108,25 @@ def create_app(
         except RunNotFoundError as error:
             raise HTTPException(status_code=404, detail=f"Unknown run: {run_id}") from error
         return session.response()
+
+    @app.post(
+        "/api/runs/{run_id}/approvals/{approval_id}",
+        response_model=ApprovalRecord,
+    )
+    async def resolve_approval(
+        run_id: str,
+        approval_id: str,
+        request: ApprovalResolveRequest,
+    ) -> ApprovalRecord:
+        try:
+            return manager.resolve_approval(run_id, approval_id, request.decision)
+        except (RunNotFoundError, ApprovalNotFoundError) as error:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Unknown approval: {approval_id}",
+            ) from error
+        except ApprovalConflictError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.get("/api/runs/{run_id}/events")
     async def events(

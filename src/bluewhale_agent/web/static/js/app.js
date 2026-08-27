@@ -1,4 +1,11 @@
-import { connectRunEvents, createRun, getRun, listRuns, stopRun } from "./api.js";
+import {
+  connectRunEvents,
+  createRun,
+  getRun,
+  listRuns,
+  resolveApproval,
+  stopRun,
+} from "./api.js";
 import { renderWorkspace } from "./render.js";
 import {
   addEvent,
@@ -35,7 +42,10 @@ const elements = {
 let closeEventStream = null;
 
 subscribe((snapshot) =>
-  renderWorkspace(elements, snapshot, { onSelectRun: activateRun }),
+  renderWorkspace(elements, snapshot, {
+    onSelectRun: activateRun,
+    onResolveApproval: submitApproval,
+  }),
 );
 
 elements.taskForm.addEventListener("submit", submitTask);
@@ -82,8 +92,10 @@ async function submitTask(event) {
 
 async function stopActiveRun() {
   if (!state.activeRunId) return;
+  if (!window.confirm("确定要停止当前任务吗？")) return;
   elements.stopButton.disabled = true;
   hideNotice();
+  setConnectionState("stopping");
   try {
     const run = await stopRun(state.activeRunId);
     upsertRun(run);
@@ -91,6 +103,18 @@ async function stopActiveRun() {
     setConnectionState("idle");
   } catch (error) {
     showNotice(error.message, true);
+  }
+}
+
+async function submitApproval(runId, approvalId, decision) {
+  hideNotice();
+  try {
+    await resolveApproval(runId, approvalId, decision);
+    showNotice(decision === "approve" ? "已批准本次操作。" : "已拒绝本次操作。");
+    return true;
+  } catch (error) {
+    showNotice(error.message, true);
+    return false;
   }
 }
 

@@ -43,6 +43,11 @@ export function addEvent(runId, storedEvent) {
   }
   const next = [...existing, storedEvent].sort((left, right) => left.sequence - right.sequence);
   state.events.set(runId, next);
+  if (storedEvent.event.kind === "state_changed" && storedEvent.event.payload.status) {
+    state.runs = state.runs.map((run) =>
+      run.id === runId ? { ...run, status: storedEvent.event.payload.status } : run,
+    );
+  }
   notify();
 }
 

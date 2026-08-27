@@ -11,9 +11,17 @@ from pathlib import Path
 from uuid import uuid4
 
 from bluewhale_agent.agent.loop import AgentLoop, AgentRunResult
-from bluewhale_agent.domain.models import Limits, RunStatus
+from bluewhale_agent.domain.events import EventKind, RunEvent
+from bluewhale_agent.domain.models import Action, Limits, RunStatus
 from bluewhale_agent.providers.base import ModelProvider
+from bluewhale_agent.runtime.permissions import PermissionResult
 from bluewhale_agent.trajectory.store import StoredEvent, TrajectoryStore
+from bluewhale_agent.web.approvals import (
+    ApprovalBroker,
+    ApprovalDecision,
+    ApprovalRecord,
+    ApprovalStatus,
+)
 from bluewhale_agent.web.event_bus import EventBus
 from bluewhale_agent.web.schemas import RunCreateRequest, RunResponse
 
@@ -75,6 +83,7 @@ class SessionManager:
         provider_factory: ProviderFactory,
         limits: Limits | None = None,
         heartbeat_seconds: float = 15.0,
+        approval_broker: ApprovalBroker | None = None,
     ) -> None:
         if heartbeat_seconds <= 0:
             raise ValueError("heartbeat_seconds must be positive")
@@ -84,6 +93,7 @@ class SessionManager:
         self._provider_factory = provider_factory
         self._limits = limits or Limits()
         self._heartbeat_seconds = heartbeat_seconds
+        self.approvals = approval_broker or ApprovalBroker()
         self._sessions: dict[str, RunSession] = {}
         self._lock = asyncio.Lock()
 
@@ -114,6 +124,10 @@ class SessionManager:
                 event_bus=event_bus,
                 status=RunStatus.RUNNING,
             )
+
+            async def approval_handler(action: Action, permission: PermissionResult) -> bool:
+                return await self._request_approval(session, action, permission)
+
             loop = AgentLoop(
                 run_id=run_id,
                 workspace=workspace,
@@ -122,6 +136,7 @@ class SessionManager:
                 cancel_event=cancel_event,
                 trajectory=trajectory,
                 event_sink=event_bus.publish,
+                approval_handler=approval_handler,
             )
             self._sessions[run_id] = session
             session.background = asyncio.create_task(self._execute(session, loop))
@@ -141,6 +156,11 @@ class SessionManager:
         background = session.background
         if background is None or background.done():
             return session
+        pending = self.approvals.pending_for_run(run_id)
+        self.approvals.cancel_run(run_id)
+        for approval in pending:
+            cancelled = self.approvals.get(run_id, approval.id)
+            self._publish_approval(session, EventKind.APPROVAL_RESOLVED, cancelled)
         session.cancel_event.set()
         background.cancel()
         with suppress(asyncio.CancelledError):
@@ -182,12 +202,87 @@ class SessionManager:
             if session.background is not None and not session.background.done()
         ]
         for session in active:
+            self.approvals.cancel_run(session.id)
             session.cancel_event.set()
         backgrounds = [session.background for session in active if session.background is not None]
         for background in backgrounds:
             background.cancel()
         if backgrounds:
             await asyncio.gather(*backgrounds, return_exceptions=True)
+
+    def resolve_approval(
+        self,
+        run_id: str,
+        approval_id: str,
+        decision: ApprovalDecision,
+    ) -> ApprovalRecord:
+        session = self.get(run_id)
+        approval = self.approvals.resolve(run_id, approval_id, decision)
+        self._publish_approval(session, EventKind.APPROVAL_RESOLVED, approval)
+        return approval
+
+    async def _request_approval(
+        self,
+        session: RunSession,
+        action: Action,
+        permission: PermissionResult,
+    ) -> bool:
+        previous_status = session.status
+        session.status = RunStatus.WAITING_APPROVAL
+        self._publish(
+            session,
+            EventKind.STATE_CHANGED,
+            {"status": RunStatus.WAITING_APPROVAL.value},
+        )
+        approval_id: str | None = None
+
+        def publish_pending(approval: ApprovalRecord) -> None:
+            nonlocal approval_id
+            approval_id = approval.id
+            self._publish_approval(session, EventKind.APPROVAL_REQUESTED, approval)
+
+        try:
+            approved = await self.approvals.request(
+                session.id,
+                action,
+                permission.reason,
+                on_pending=publish_pending,
+            )
+            if approval_id is not None:
+                approval = self.approvals.get(session.id, approval_id)
+                if approval.status is ApprovalStatus.EXPIRED:
+                    self._publish_approval(session, EventKind.APPROVAL_RESOLVED, approval)
+            return approved
+        finally:
+            if session.status is RunStatus.WAITING_APPROVAL:
+                session.status = previous_status
+                self._publish(
+                    session,
+                    EventKind.STATE_CHANGED,
+                    {"status": previous_status.value},
+                )
+
+    @staticmethod
+    def _publish_approval(
+        session: RunSession,
+        kind: EventKind,
+        approval: ApprovalRecord,
+    ) -> StoredEvent:
+        return SessionManager._publish(
+            session,
+            kind,
+            {"approval": approval.model_dump(mode="json")},
+        )
+
+    @staticmethod
+    def _publish(
+        session: RunSession,
+        kind: EventKind,
+        payload: dict[str, object],
+    ) -> StoredEvent:
+        stored = session.trajectory.append(RunEvent(run_id=session.id, kind=kind, payload=payload))
+        session.event_bus.publish(stored)
+        return stored
 
     async def _execute(self, session: RunSession, loop: AgentLoop) -> None:
         result = await loop.run(session.task)

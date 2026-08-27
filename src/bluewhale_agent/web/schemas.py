@@ -7,6 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from bluewhale_agent.domain.models import RunStatus, StopReason
+from bluewhale_agent.web.approvals import ApprovalDecision
 
 
 class HealthResponse(BaseModel):
@@ -22,6 +23,14 @@ class RunCreateRequest(BaseModel):
         pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
     )
     workspace: str = Field(default=".", min_length=1)
+
+
+class ApprovalResolveRequest(BaseModel):
+    """Strict one-shot decision submitted by the local GUI."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: ApprovalDecision
 
 
 class RunResponse(BaseModel):

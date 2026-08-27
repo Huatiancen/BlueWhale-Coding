@@ -16,6 +16,8 @@ class EventKind(StrEnum):
     STATE_CHANGED = "state_changed"
     MODEL_RESPONSE = "model_response"
     ACTION_REQUESTED = "action_requested"
+    APPROVAL_REQUESTED = "approval_requested"
+    APPROVAL_RESOLVED = "approval_resolved"
     OBSERVATION_RECEIVED = "observation_received"
     VERIFICATION_FINISHED = "verification_finished"
     RUN_FINISHED = "run_finished"
@@ -32,4 +34,3 @@ class RunEvent(BaseModel):
     payload: dict[str, object] = Field(default_factory=dict)
     occurred_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     schema_version: int = Field(default=1, ge=1)
-

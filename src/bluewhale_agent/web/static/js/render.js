@@ -14,7 +14,7 @@ export function renderWorkspace(elements, snapshot, callbacks) {
   renderConnection(elements, snapshot.connectionState);
   renderSessions(elements, snapshot.runs, snapshot.activeRunId, callbacks.onSelectRun);
   renderRunStatus(elements, run);
-  renderConversation(elements, events);
+  renderConversation(elements, events, callbacks.onResolveApproval);
   renderInspector(elements, events, snapshot.selectedPanel);
   renderTimeline(elements, events);
 }
@@ -25,6 +25,7 @@ function renderConnection(elements, connectionState) {
     connecting: "正在连接事件流",
     connected: "实时轨迹已连接",
     reconnecting: "连接中断，正在恢复",
+    stopping: "正在安全停止任务",
     error: "连接发生错误",
   };
   elements.connection.textContent = labels[connectionState] || connectionState;
@@ -59,18 +60,29 @@ function renderRunStatus(elements, run) {
   const status = run?.status || "neutral";
   elements.runStatus.className = `status-pill ${status}`;
   elements.runStatus.textContent = run ? statusLabel(status) : "未运行";
-  elements.stopButton.disabled = !run || !["initializing", "running", "verifying"].includes(status);
+  elements.stopButton.disabled =
+    !run || !["initializing", "running", "waiting_approval", "verifying"].includes(status);
 }
 
-function renderConversation(elements, events) {
+function renderConversation(elements, events, onResolveApproval) {
   elements.conversation.replaceChildren();
   const visible = events.filter((stored) =>
-    ["model_response", "action_requested", "observation_received", "verification_finished"].includes(
-      stored.event.kind,
-    ),
+    [
+      "model_response",
+      "action_requested",
+      "approval_requested",
+      "observation_received",
+      "verification_finished",
+    ].includes(stored.event.kind),
   );
   elements.conversationEmpty.hidden = visible.length > 0;
   for (const stored of visible) {
+    if (stored.event.kind === "approval_requested") {
+      elements.conversation.append(
+        approvalCard(stored, events, onResolveApproval),
+      );
+      continue;
+    }
     const category = classify(stored);
     const card = element("article", `message-card ${category.toLowerCase()}`);
     const meta = element("div", "message-meta");
@@ -79,6 +91,67 @@ function renderConversation(elements, events) {
     card.append(meta, body);
     elements.conversation.append(card);
   }
+  const scroller = elements.conversation.parentElement;
+  scroller.scrollTop = scroller.scrollHeight;
+}
+
+function approvalCard(stored, events, onResolveApproval) {
+  const approval = stored.event.payload.approval;
+  const resolution = events
+    .filter((candidate) => candidate.event.kind === "approval_resolved")
+    .find((candidate) => candidate.event.payload.approval?.id === approval.id);
+  const status = resolution?.event.payload.approval?.status || approval.status;
+  const pending = status === "pending";
+  const card = element("article", `approval-card ${status}`);
+  const heading = document.createElement("header");
+  const title = element("div", "");
+  title.append(
+    element("span", "event-badge", "APPROVAL"),
+    element("h3", "", `允许执行 ${approval.action.tool_name}？`),
+  );
+  heading.append(title, element("span", `approval-status ${status}`, approvalStatus(status)));
+
+  const reason = element("p", "approval-reason", approval.reason);
+  const argumentsBlock = element("pre", "approval-arguments", safeJson(approval.action.arguments));
+  const impact = element(
+    "p",
+    "approval-impact",
+    approval.impact_paths.length
+      ? `影响路径：${approval.impact_paths.join("、")}`
+      : "影响路径：未声明具体文件路径",
+  );
+  const actions = element("div", "approval-actions");
+  const deny = approvalButton("拒绝", "deny danger", "deny");
+  const approve = approvalButton("批准一次", "approve", "approve");
+  deny.disabled = !pending;
+  approve.disabled = !pending;
+
+  async function decide(decision) {
+    deny.disabled = true;
+    approve.disabled = true;
+    const accepted = await onResolveApproval(
+      approval.run_id,
+      approval.id,
+      decision,
+    );
+    if (!accepted) {
+      deny.disabled = false;
+      approve.disabled = false;
+    }
+  }
+
+  deny.addEventListener("click", () => decide("deny"));
+  approve.addEventListener("click", () => decide("approve"));
+  actions.append(deny, approve);
+  card.append(heading, reason, argumentsBlock, impact, actions);
+  return card;
+}
+
+function approvalButton(label, className, decision) {
+  const button = element("button", `approval-button ${className}`, label);
+  button.type = "button";
+  button.dataset.decision = decision;
+  return button;
 }
 
 function renderInspector(elements, events, selectedPanel) {
@@ -147,6 +220,10 @@ function classify(stored) {
   const { kind, payload } = stored.event;
   if (kind === "model_response") return CATEGORY.MODEL;
   if (kind === "action_requested") return CATEGORY.TOOL;
+  if (kind === "approval_requested") return CATEGORY.PLAN;
+  if (kind === "approval_resolved") {
+    return payload.approval?.status === "approved" ? CATEGORY.DONE : CATEGORY.ERROR;
+  }
   if (kind === "verification_finished") return payload.outcome?.passed ? CATEGORY.DONE : CATEGORY.TEST;
   if (kind === "run_finished") return payload.status === "completed" ? CATEGORY.DONE : CATEGORY.ERROR;
   if (kind === "observation_received") {
@@ -164,11 +241,24 @@ function eventTitle(stored) {
     state_changed: `状态切换为 ${stored.event.payload.status || "unknown"}`,
     model_response: "模型完成一次推理",
     action_requested: `请求工具 ${stored.event.payload.action?.tool_name || "unknown"}`,
+    approval_requested: `等待审批 ${stored.event.payload.approval?.action?.tool_name || "unknown"}`,
+    approval_resolved: `审批结果：${stored.event.payload.approval?.status || "unknown"}`,
     observation_received: stored.event.payload.observation?.summary || "收到工具结果",
     verification_finished: "验证门禁完成",
     run_finished: `任务以 ${stored.event.payload.stop_reason || "unknown"} 结束`,
   };
   return titles[stored.event.kind] || stored.event.kind;
+}
+
+function approvalStatus(status) {
+  const labels = {
+    pending: "等待决定",
+    approved: "已批准",
+    denied: "已拒绝",
+    expired: "已超时拒绝",
+    cancelled: "已取消",
+  };
+  return labels[status] || status;
 }
 
 function eventDescription(stored) {
@@ -206,6 +296,7 @@ function statusLabel(status) {
   const labels = {
     initializing: "初始化",
     running: "执行中",
+    waiting_approval: "等待审批",
     verifying: "验证中",
     completed: "已完成",
     failed: "失败",
