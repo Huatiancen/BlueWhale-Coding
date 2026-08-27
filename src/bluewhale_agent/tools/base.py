@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel
 
+from bluewhale_agent.runtime.changeset import ChangeSet
 from bluewhale_agent.runtime.paths import WorkspacePaths
 
 
@@ -21,6 +22,7 @@ class ToolContext:
     paths: WorkspacePaths
     max_file_bytes: int = 1_048_576
     max_read_lines: int = 500
+    changeset: ChangeSet = field(default_factory=ChangeSet)
 
 
 @dataclass(frozen=True)

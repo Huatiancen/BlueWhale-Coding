@@ -1,5 +1,6 @@
 """Local runtime safety boundaries."""
 
+from bluewhale_agent.runtime.changeset import ChangeSet, FileChange
 from bluewhale_agent.runtime.paths import PathAccessDeniedError, PathAccessError, WorkspacePaths
 from bluewhale_agent.runtime.permissions import (
     PermissionDecision,
@@ -8,6 +9,8 @@ from bluewhale_agent.runtime.permissions import (
 )
 
 __all__ = [
+    "ChangeSet",
+    "FileChange",
     "PathAccessError",
     "PathAccessDeniedError",
     "PermissionDecision",
