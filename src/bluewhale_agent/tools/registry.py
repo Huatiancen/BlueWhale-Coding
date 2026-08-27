@@ -64,7 +64,7 @@ class ToolRegistry:
 
         return Observation(
             action_id=action.id,
-            status=ObservationStatus.SUCCESS,
+            status=output.status,
             summary=output.summary,
             content=output.content,
             metadata=output.metadata,

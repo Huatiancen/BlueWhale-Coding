@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel
 
+from bluewhale_agent.domain.models import ObservationStatus
 from bluewhale_agent.runtime.changeset import ChangeSet
 from bluewhale_agent.runtime.paths import WorkspacePaths
 
@@ -22,6 +23,8 @@ class ToolContext:
     paths: WorkspacePaths
     max_file_bytes: int = 1_048_576
     max_read_lines: int = 500
+    command_timeout_seconds: float = 120.0
+    max_command_output_bytes: int = 20_000
     changeset: ChangeSet = field(default_factory=ChangeSet)
 
 
@@ -32,6 +35,7 @@ class ToolOutput:
     summary: str
     content: str = ""
     metadata: dict[str, object] = field(default_factory=dict)
+    status: ObservationStatus = ObservationStatus.SUCCESS
 
 
 class BaseTool(ABC):
