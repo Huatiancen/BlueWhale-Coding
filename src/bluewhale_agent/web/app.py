@@ -7,7 +7,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from bluewhale_agent.config import Settings
 from bluewhale_agent.providers.base import ModelProvider
@@ -50,6 +51,12 @@ def create_app(
 
     app = FastAPI(title="BlueWhale Coding Agent", lifespan=lifespan)
     app.state.sessions = manager
+    static_directory = Path(__file__).parent / "static"
+    app.mount("/static", StaticFiles(directory=static_directory), name="static")
+
+    @app.get("/", include_in_schema=False)
+    async def index() -> FileResponse:
+        return FileResponse(static_directory / "index.html")
 
     @app.get("/api/health", response_model=HealthResponse)
     async def health() -> HealthResponse:

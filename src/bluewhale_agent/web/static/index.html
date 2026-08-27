@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#06151f">
+    <title>BlueWhale Coding Agent</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#workspace-main">跳到主要工作区</a>
+
+    <div class="app-shell">
+      <header class="masthead">
+        <div class="brand-lockup" aria-label="BlueWhale Coding Agent">
+          <span class="brand-mark" aria-hidden="true"><span></span></span>
+          <div>
+            <p class="eyebrow">LOCAL AGENT HARNESS</p>
+            <h1>BlueWhale <span>Coding Agent</span></h1>
+          </div>
+        </div>
+        <div class="connection-cluster">
+          <span class="pulse-dot" aria-hidden="true"></span>
+          <span id="connection-status" class="connection-status" aria-live="polite">正在连接</span>
+        </div>
+      </header>
+
+      <aside class="sessions panel" aria-labelledby="sessions-title">
+        <div class="panel-heading">
+          <div>
+            <p class="section-index">01 / RUNS</p>
+            <h2 id="sessions-title">任务会话</h2>
+          </div>
+          <button id="refresh-runs" class="icon-button" type="button" aria-label="刷新任务列表">↻</button>
+        </div>
+        <ol id="session-list" class="session-list" aria-label="任务会话列表"></ol>
+        <div id="session-empty" class="empty-state compact">
+          <span class="empty-glyph" aria-hidden="true">◌</span>
+          <p>尚无任务</p>
+          <small>提交指令后，执行轨迹会出现在这里。</small>
+        </div>
+      </aside>
+
+      <main id="workspace-main" class="conversation panel" tabindex="-1">
+        <section class="task-composer" aria-labelledby="task-title">
+          <div class="composer-copy">
+            <p class="section-index">02 / MISSION</p>
+            <h2 id="task-title">给 BlueWhale 一个明确目标</h2>
+            <p>Agent 会在本地工作区内检查、修改并验证代码，每一步都会留下证据。</p>
+          </div>
+          <form id="task-form" class="task-form">
+            <label for="task-input">开发任务</label>
+            <textarea
+              id="task-input"
+              name="task"
+              rows="3"
+              required
+              placeholder="例如：定位登录接口的边界错误，修复后运行相关测试"
+            ></textarea>
+            <div class="form-row">
+              <div class="workspace-field">
+                <label for="workspace-input">工作区</label>
+                <input id="workspace-input" name="workspace" value="." autocomplete="off">
+              </div>
+              <div class="form-actions">
+                <button id="stop-run" class="button secondary" type="button" disabled>停止</button>
+                <button id="submit-task" class="button primary" type="submit">
+                  <span>启动任务</span><span aria-hidden="true">↗</span>
+                </button>
+              </div>
+            </div>
+          </form>
+          <p id="app-notice" class="notice" role="status" aria-live="polite" hidden></p>
+        </section>
+
+        <section class="conversation-stream" aria-labelledby="conversation-title">
+          <div class="stream-heading">
+            <div>
+              <p class="section-index">LIVE CONTEXT</p>
+              <h2 id="conversation-title">Agent 对话</h2>
+            </div>
+            <span id="run-status" class="status-pill neutral">未运行</span>
+          </div>
+          <div id="conversation-panel" class="conversation-feed" aria-live="polite"></div>
+          <div id="conversation-empty" class="empty-state">
+            <div class="sonar" aria-hidden="true"><span></span><span></span><span></span></div>
+            <h3>等待下潜指令</h3>
+            <p>模型响应、工具调用和验证结论会汇聚到这里。</p>
+          </div>
+        </section>
+      </main>
+
+      <aside class="inspector panel" aria-labelledby="inspector-title">
+        <div class="panel-heading inspector-heading">
+          <div>
+            <p class="section-index">03 / PROOF</p>
+            <h2 id="inspector-title">变更与证据</h2>
+          </div>
+        </div>
+        <div class="tab-list" role="tablist" aria-label="检查面板">
+          <button class="tab active" id="evidence-tab" role="tab" aria-selected="true" aria-controls="evidence-panel" data-panel="evidence">Evidence</button>
+          <button class="tab" id="changes-tab" role="tab" aria-selected="false" aria-controls="changes-panel" data-panel="changes">Changes</button>
+        </div>
+        <section id="evidence-panel" class="inspector-panel active" role="tabpanel" aria-labelledby="evidence-tab"></section>
+        <section id="changes-panel" class="inspector-panel" role="tabpanel" aria-labelledby="changes-tab" hidden></section>
+      </aside>
+
+      <section class="activity panel" aria-labelledby="activity-title">
+        <div class="activity-heading">
+          <div>
+            <p class="section-index">04 / TRAJECTORY</p>
+            <h2 id="activity-title">活动时间线</h2>
+          </div>
+          <div class="legend" aria-label="事件类型图例">
+            <span><i class="tone model"></i>MODEL</span>
+            <span><i class="tone tool"></i>TOOL</span>
+            <span><i class="tone test"></i>TEST</span>
+            <span><i class="tone done"></i>DONE</span>
+          </div>
+        </div>
+        <ol id="activity-timeline" class="timeline" aria-live="polite"></ol>
+      </section>
+    </div>
+
+    <script type="module" src="/static/js/app.js"></script>
+  </body>
+</html>
