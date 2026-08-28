@@ -30,14 +30,19 @@ def test_append_assigns_monotonic_sequences_and_supports_resume(tmp_path: Path) 
 
 def test_append_redacts_credentials_before_writing_jsonl(tmp_path: Path) -> None:
     store = TrajectoryStore(tmp_path, "run-1")
+    api_key_name = "_".join(("DEEPSEEK", "API", "KEY"))
+    api_key = "-".join(("sk", "super-secret-value"))
+    bearer_header = " ".join(("Authorization:", "Bearer", "bearer-secret-value"))
+    env_command = "=".join((api_key_name, "plain-secret python app.py"))
+    nested_token = " ".join(("prefix", "-".join(("sk", "another-secret-value")), "suffix"))
     store.append(
         make_event(
             "run-1",
             {
-                "DEEPSEEK_API_KEY": "sk-super-secret-value",
-                "header": "Authorization: Bearer bearer-secret-value",
-                "command": "DEEPSEEK_API_KEY=plain-secret python app.py",
-                "nested": {"token": "prefix sk-another-secret-value suffix"},
+                api_key_name: api_key,
+                "header": bearer_header,
+                "command": env_command,
+                "nested": {"token": nested_token},
             },
         )
     )

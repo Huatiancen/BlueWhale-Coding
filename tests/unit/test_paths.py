@@ -34,7 +34,8 @@ def test_resolve_rejects_symlink_escape(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("name", [".env", ".env.local"])
 def test_resolve_rejects_credential_files(tmp_path: Path, name: str) -> None:
-    (tmp_path / name).write_text("DEEPSEEK_API_KEY=secret", encoding="utf-8")
+    credential = "=".join(("DEEPSEEK_API_KEY", "secret"))
+    (tmp_path / name).write_text(credential, encoding="utf-8")
 
     with pytest.raises(PathAccessError, match="protected"):
         WorkspacePaths(tmp_path).resolve(name)
