@@ -22,7 +22,8 @@ class RunCreateRequest(BaseModel):
         default=None,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
     )
-    workspace: str = Field(default=".", min_length=1)
+    workspace: str | None = Field(default=None, min_length=1)
+    workspace_grant_id: str | None = Field(default=None, min_length=1)
 
 
 class ApprovalResolveRequest(BaseModel):

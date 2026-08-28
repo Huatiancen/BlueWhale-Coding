@@ -36,10 +36,13 @@ export function getRun(runId) {
   return request(`/api/runs/${encodeURIComponent(runId)}`);
 }
 
-export function createRun({ task, workspace }) {
+export function createRun({ task, workspace, workspaceGrantId }) {
+  const body = { task };
+  if (workspaceGrantId) body.workspace_grant_id = workspaceGrantId;
+  else body.workspace = workspace || ".";
   return request("/api/runs", {
     method: "POST",
-    body: JSON.stringify({ task, workspace }),
+    body: JSON.stringify(body),
   });
 }
 

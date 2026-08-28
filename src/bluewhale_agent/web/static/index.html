@@ -20,9 +20,15 @@
             <h1>BlueWhale <span>Coding Agent</span></h1>
           </div>
         </div>
-        <div class="connection-cluster">
-          <span class="pulse-dot" aria-hidden="true"></span>
-          <span id="connection-status" class="connection-status" aria-live="polite">正在连接</span>
+        <div class="header-actions">
+          <div id="desktop-controls" class="desktop-controls" hidden>
+            <button id="open-project" class="button secondary compact-button" type="button">打开项目</button>
+            <button id="open-model-settings" class="icon-button" type="button" aria-label="模型设置">⚙</button>
+          </div>
+          <div class="connection-cluster">
+            <span class="pulse-dot" aria-hidden="true"></span>
+            <span id="connection-status" class="connection-status" aria-live="polite">正在连接</span>
+          </div>
         </div>
       </header>
 
@@ -62,6 +68,13 @@
               <div class="workspace-field">
                 <label for="workspace-input">工作区</label>
                 <input id="workspace-input" name="workspace" value="." autocomplete="off">
+              </div>
+              <div id="desktop-project" class="desktop-project" hidden>
+                <span class="project-state" aria-hidden="true">◉</span>
+                <span>
+                  <strong id="project-name">尚未选择项目</strong>
+                  <small id="project-path">点击“打开项目”授权工作区</small>
+                </span>
               </div>
               <div class="form-actions">
                 <button id="stop-run" class="button secondary" type="button" disabled>停止</button>
@@ -122,6 +135,26 @@
         <ol id="activity-timeline" class="timeline" aria-live="polite"></ol>
       </section>
     </div>
+
+    <dialog id="model-settings" class="settings-dialog" aria-labelledby="model-settings-title">
+      <form id="api-key-form">
+        <div class="dialog-heading">
+          <div>
+            <p class="section-index">MODEL ACCESS</p>
+            <h2 id="model-settings-title">DeepSeek 设置</h2>
+          </div>
+          <button id="close-model-settings" class="icon-button" type="button" aria-label="关闭模型设置">×</button>
+        </div>
+        <p class="dialog-copy">API Key 将保存到 macOS 钥匙串，BlueWhale 不会回显已保存的值。</p>
+        <label for="api-key-input">新的 API Key</label>
+        <input id="api-key-input" type="password" autocomplete="off" spellcheck="false">
+        <p id="api-key-status" class="secret-status" role="status">正在检查配置</p>
+        <div class="dialog-actions">
+          <button id="clear-api-key" class="button secondary" type="button">清除密钥</button>
+          <button id="save-api-key" class="button primary" type="submit"><span>保存到钥匙串</span></button>
+        </div>
+      </form>
+    </dialog>
 
     <script type="module" src="/static/js/app.js"></script>
   </body>

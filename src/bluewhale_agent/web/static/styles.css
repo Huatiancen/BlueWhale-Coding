@@ -120,6 +120,8 @@ textarea:focus-visible,
 
 .brand-lockup,
 .connection-cluster,
+.header-actions,
+.desktop-controls,
 .panel-heading,
 .stream-heading,
 .activity-heading,
@@ -218,6 +220,15 @@ h2 {
   gap: 9px;
   color: var(--ink-300);
   font-size: 0.78rem;
+}
+
+.header-actions,
+.desktop-controls {
+  gap: 9px;
+}
+
+.compact-button {
+  min-height: 34px;
 }
 
 .pulse-dot {
@@ -439,6 +450,44 @@ input {
   width: min(260px, 48%);
 }
 
+.desktop-project {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  max-width: 56%;
+  padding: 8px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: rgba(61, 225, 232, 0.05);
+}
+
+.desktop-project[hidden] {
+  display: none;
+}
+
+.desktop-project strong,
+.desktop-project small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-project strong {
+  font-size: 0.76rem;
+}
+
+.desktop-project small {
+  margin-top: 3px;
+  color: var(--ink-500);
+  font-size: 0.65rem;
+}
+
+.project-state {
+  color: var(--cyan-400);
+}
+
 .form-actions {
   align-self: flex-end;
   gap: 8px;
@@ -493,6 +542,49 @@ input {
   color: #ffb3bf;
   border-color: rgba(255, 113, 136, 0.3);
   background: rgba(255, 113, 136, 0.08);
+}
+
+.settings-dialog {
+  width: min(480px, calc(100vw - 32px));
+  color: var(--ink-100);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--ocean-900);
+  box-shadow: var(--shadow);
+}
+
+.settings-dialog::backdrop {
+  background: rgba(0, 7, 12, 0.72);
+  backdrop-filter: blur(7px);
+}
+
+.settings-dialog form {
+  display: grid;
+  gap: 14px;
+}
+
+.dialog-heading,
+.dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dialog-copy,
+.secret-status {
+  margin: 0;
+  color: var(--ink-300);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.secret-status[data-configured="true"] {
+  color: var(--success);
+}
+
+.secret-status[data-configured="error"] {
+  color: var(--danger);
 }
 
 .conversation-stream {

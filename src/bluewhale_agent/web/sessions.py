@@ -24,6 +24,7 @@ from bluewhale_agent.web.approvals import (
 )
 from bluewhale_agent.web.event_bus import EventBus
 from bluewhale_agent.web.schemas import RunCreateRequest, RunResponse
+from bluewhale_agent.web.workspaces import WorkspaceResolver
 
 ProviderFactory = Callable[[], ModelProvider]
 
@@ -34,10 +35,6 @@ class RunConflictError(RuntimeError):
 
 class RunNotFoundError(KeyError):
     """Raised when a requested in-memory run is unknown."""
-
-
-class WorkspaceSelectionError(ValueError):
-    """Raised when an API-selected workspace violates the configured boundary."""
 
 
 class ProviderConfigurationError(RuntimeError):
@@ -79,7 +76,8 @@ class SessionManager:
     def __init__(
         self,
         *,
-        workspace_root: Path,
+        workspace_root: Path | None = None,
+        workspace_resolver: WorkspaceResolver | None = None,
         provider_factory: ProviderFactory,
         limits: Limits | None = None,
         heartbeat_seconds: float = 15.0,
@@ -87,9 +85,14 @@ class SessionManager:
     ) -> None:
         if heartbeat_seconds <= 0:
             raise ValueError("heartbeat_seconds must be positive")
-        self._workspace_root = workspace_root.resolve(strict=True)
-        if not self._workspace_root.is_dir():
-            raise ValueError("workspace_root must be a directory")
+        if (workspace_root is None) == (workspace_resolver is None):
+            raise ValueError("provide exactly one of workspace_root or workspace_resolver")
+        if workspace_resolver is None:
+            from bluewhale_agent.web.workspaces import RootWorkspaceResolver
+
+            assert workspace_root is not None
+            workspace_resolver = RootWorkspaceResolver(workspace_root)
+        self._workspace_resolver = workspace_resolver
         self._provider_factory = provider_factory
         self._limits = limits or Limits()
         self._heartbeat_seconds = heartbeat_seconds
@@ -105,7 +108,7 @@ class SessionManager:
             if any(self._is_active(session) for session in self._sessions.values()):
                 raise RunConflictError("Another run is already active")
 
-            workspace = self._resolve_workspace(request.workspace)
+            workspace = self._workspace_resolver.resolve(request)
             try:
                 provider = self._provider_factory()
             except (ValueError, RuntimeError) as error:
@@ -144,6 +147,9 @@ class SessionManager:
 
     def list(self) -> tuple[RunSession, ...]:
         return tuple(self._sessions.values())
+
+    def has_active_run(self) -> bool:
+        return any(self._is_active(session) for session in self._sessions.values())
 
     def get(self, run_id: str) -> RunSession:
         try:
@@ -288,28 +294,6 @@ class SessionManager:
         result = await loop.run(session.task)
         session.result = result
         session.status = result.status
-
-    def _resolve_workspace(self, requested: str) -> Path:
-        relative = Path(requested)
-        candidate = (
-            relative.resolve(strict=False)
-            if relative.is_absolute()
-            else (self._workspace_root / relative).resolve(strict=False)
-        )
-        try:
-            selected_relative = candidate.relative_to(self._workspace_root)
-        except ValueError as error:
-            raise WorkspaceSelectionError(
-                "Workspace must stay inside the configured root"
-            ) from error
-        if any(
-            part in {".bluewhale", ".git"} or part == ".env" or part.startswith(".env.")
-            for part in selected_relative.parts
-        ):
-            raise WorkspaceSelectionError("Workspace is protected")
-        if not candidate.is_dir():
-            raise WorkspaceSelectionError("Workspace does not exist or is not a directory")
-        return candidate
 
     @staticmethod
     def _is_active(session: RunSession) -> bool:

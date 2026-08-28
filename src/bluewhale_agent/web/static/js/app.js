@@ -6,6 +6,14 @@ import {
   resolveApproval,
   stopRun,
 } from "./api.js";
+import {
+  clearDesktopApiKey,
+  detectDesktopBridge,
+  getDesktopSecretState,
+  getDesktopWorkspaceState,
+  saveDesktopApiKey,
+  selectDesktopWorkspace,
+} from "./desktop.js";
 import { renderWorkspace } from "./render.js";
 import {
   addEvent,
@@ -25,6 +33,19 @@ const elements = {
   taskForm: document.querySelector("#task-form"),
   taskInput: document.querySelector("#task-input"),
   workspaceInput: document.querySelector("#workspace-input"),
+  workspaceField: document.querySelector(".workspace-field"),
+  desktopControls: document.querySelector("#desktop-controls"),
+  desktopProject: document.querySelector("#desktop-project"),
+  openProject: document.querySelector("#open-project"),
+  projectName: document.querySelector("#project-name"),
+  projectPath: document.querySelector("#project-path"),
+  openModelSettings: document.querySelector("#open-model-settings"),
+  modelSettings: document.querySelector("#model-settings"),
+  closeModelSettings: document.querySelector("#close-model-settings"),
+  apiKeyForm: document.querySelector("#api-key-form"),
+  apiKeyInput: document.querySelector("#api-key-input"),
+  apiKeyStatus: document.querySelector("#api-key-status"),
+  clearApiKey: document.querySelector("#clear-api-key"),
   submitButton: document.querySelector("#submit-task"),
   stopButton: document.querySelector("#stop-run"),
   refreshButton: document.querySelector("#refresh-runs"),
@@ -40,25 +61,35 @@ const elements = {
 };
 
 let closeEventStream = null;
+let desktopBridge = null;
+let workspaceGrantId = null;
+let busy = false;
 
-subscribe((snapshot) =>
+subscribe((snapshot) => {
   renderWorkspace(elements, snapshot, {
     onSelectRun: activateRun,
     onResolveApproval: submitApproval,
-  }),
-);
+  });
+  updateDesktopControls();
+});
 
 elements.taskForm.addEventListener("submit", submitTask);
 elements.stopButton.addEventListener("click", stopActiveRun);
 elements.refreshButton.addEventListener("click", refreshRuns);
 elements.evidenceTab.addEventListener("click", () => setSelectedPanel("evidence"));
 elements.changesTab.addEventListener("click", () => setSelectedPanel("changes"));
+elements.openProject.addEventListener("click", openDesktopProject);
+elements.openModelSettings.addEventListener("click", showModelSettings);
+elements.closeModelSettings.addEventListener("click", () => elements.modelSettings.close());
+elements.apiKeyForm.addEventListener("submit", saveApiKey);
+elements.clearApiKey.addEventListener("click", clearApiKey);
 
 await boot();
 
 async function boot() {
   setConnectionState("connecting");
   try {
+    await initializeDesktop();
     const runs = await listRuns();
     setRuns(runs);
     setConnectionState("idle");
@@ -74,10 +105,14 @@ async function submitTask(event) {
   const task = elements.taskInput.value.trim();
   const workspace = elements.workspaceInput.value.trim() || ".";
   if (!task) return;
+  if (desktopBridge && !workspaceGrantId) {
+    showNotice("请先打开一个项目。", true);
+    return;
+  }
   setBusy(true);
   hideNotice();
   try {
-    const run = await createRun({ task, workspace });
+    const run = await createRun({ task, workspace, workspaceGrantId });
     upsertRun(run);
     selectRun(run.id);
     elements.taskInput.value = "";
@@ -148,6 +183,7 @@ function connectToRun(runId) {
         setConnectionState("idle");
         try {
           upsertRun(await getRun(runId));
+          updateDesktopControls();
         } catch (error) {
           showNotice(error.message, true);
         }
@@ -161,10 +197,98 @@ function closeStream() {
   closeEventStream = null;
 }
 
-function setBusy(busy) {
-  elements.submitButton.disabled = busy;
-  elements.taskInput.disabled = busy;
-  elements.workspaceInput.disabled = busy;
+function setBusy(isBusy) {
+  busy = isBusy;
+  elements.submitButton.disabled = isBusy || Boolean(desktopBridge && !workspaceGrantId);
+  elements.taskInput.disabled = isBusy;
+  elements.workspaceInput.disabled = isBusy;
+  window.requestAnimationFrame(updateDesktopControls);
+}
+
+async function initializeDesktop() {
+  desktopBridge = await detectDesktopBridge();
+  if (!desktopBridge) return;
+  document.body.dataset.runtime = "desktop";
+  elements.desktopControls.hidden = false;
+  elements.desktopProject.hidden = false;
+  elements.workspaceField.hidden = true;
+  const workspace = await getDesktopWorkspaceState(desktopBridge);
+  if (workspace.configured) applyWorkspace(workspace);
+  await refreshSecretState();
+  updateDesktopControls();
+}
+
+async function openDesktopProject() {
+  hideNotice();
+  try {
+    const result = await selectDesktopWorkspace(desktopBridge);
+    if (!result.cancelled) {
+      applyWorkspace(result);
+      showNotice(`已授权项目：${result.display_name}`);
+    }
+  } catch (error) {
+    showNotice(error.message, true);
+  }
+  updateDesktopControls();
+}
+
+function applyWorkspace(workspace) {
+  workspaceGrantId = workspace.grant_id;
+  elements.projectName.textContent = workspace.display_name;
+  elements.projectPath.textContent = workspace.display_path;
+}
+
+async function showModelSettings() {
+  await refreshSecretState();
+  elements.modelSettings.showModal();
+  elements.apiKeyInput.focus();
+}
+
+async function refreshSecretState() {
+  if (!desktopBridge) return;
+  try {
+    const result = await getDesktopSecretState(desktopBridge);
+    elements.apiKeyStatus.textContent = result.configured ? "已安全配置" : "尚未配置";
+    elements.apiKeyStatus.dataset.configured = String(result.configured);
+  } catch (error) {
+    elements.apiKeyStatus.textContent = error.message;
+    elements.apiKeyStatus.dataset.configured = "error";
+  }
+}
+
+async function saveApiKey(event) {
+  event.preventDefault();
+  const value = elements.apiKeyInput.value;
+  try {
+    await saveDesktopApiKey(desktopBridge, value);
+    showNotice("DeepSeek API Key 已保存到 macOS 钥匙串。");
+    await refreshSecretState();
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    elements.apiKeyInput.value = "";
+  }
+}
+
+async function clearApiKey() {
+  try {
+    await clearDesktopApiKey(desktopBridge);
+    showNotice("已清除 macOS 钥匙串中的 DeepSeek API Key。");
+    await refreshSecretState();
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    elements.apiKeyInput.value = "";
+  }
+}
+
+function updateDesktopControls() {
+  if (!desktopBridge) return;
+  const active = state.runs.some((run) =>
+    ["initializing", "running", "waiting_approval", "verifying"].includes(run.status),
+  );
+  elements.openProject.disabled = busy || active;
+  elements.submitButton.disabled = busy || !workspaceGrantId || active;
 }
 
 function showNotice(message, isError = false) {

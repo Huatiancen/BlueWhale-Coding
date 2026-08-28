@@ -14,6 +14,18 @@ def test_serve_command_accepts_workspace() -> None:
     assert args.workspace == "."
 
 
+def test_desktop_command_needs_no_workspace() -> None:
+    args = build_parser().parse_args(["desktop"])
+
+    assert args.command == "desktop"
+
+
+def test_main_dispatches_desktop_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("bluewhale_agent.desktop.launcher.run_desktop", lambda: 7)
+
+    assert main(["desktop"]) == 7
+
+
 def test_main_starts_local_uvicorn_server(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

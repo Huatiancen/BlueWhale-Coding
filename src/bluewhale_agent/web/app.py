@@ -7,8 +7,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Request, status
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import RequestResponseEndpoint
+from starlette.responses import Response
 
 from bluewhale_agent.config import Settings
 from bluewhale_agent.providers.base import ModelProvider
@@ -19,6 +21,7 @@ from bluewhale_agent.web.approvals import (
     ApprovalNotFoundError,
     ApprovalRecord,
 )
+from bluewhale_agent.web.desktop_auth import DESKTOP_COOKIE, DesktopSessionGuard
 from bluewhale_agent.web.schemas import (
     ApprovalResolveRequest,
     HealthResponse,
@@ -32,27 +35,40 @@ from bluewhale_agent.web.sessions import (
     RunNotFoundError,
     RunSession,
     SessionManager,
+)
+from bluewhale_agent.web.workspaces import (
+    RootWorkspaceResolver,
+    WorkspaceResolver,
     WorkspaceSelectionError,
 )
 
 
 def create_app(
     *,
-    workspace: Path,
+    workspace: Path | None = None,
+    workspace_resolver: WorkspaceResolver | None = None,
     provider_factory: ProviderFactory | None = None,
     settings: Settings | None = None,
     approval_timeout_seconds: float = 60.0,
+    desktop_token: str | None = None,
 ) -> FastAPI:
     """Build an app whose agent runs are restricted to one configured root."""
 
-    selected_settings = settings or Settings(workspace=workspace)
+    if (workspace is None) == (workspace_resolver is None):
+        raise ValueError("provide exactly one of workspace or workspace_resolver")
+    selected_settings = settings or Settings(workspace=workspace or Path.cwd())
 
     def default_provider_factory() -> ModelProvider:
         return DeepSeekProvider(selected_settings)
 
+    selected_resolver = workspace_resolver
+    if selected_resolver is None:
+        assert workspace is not None
+        selected_resolver = RootWorkspaceResolver(workspace)
+
     approvals = ApprovalBroker(timeout_seconds=approval_timeout_seconds)
     manager = SessionManager(
-        workspace_root=workspace,
+        workspace_resolver=selected_resolver,
         provider_factory=provider_factory or default_provider_factory,
         limits=selected_settings.limits,
         approval_broker=approvals,
@@ -66,6 +82,24 @@ def create_app(
     app = FastAPI(title="BlueWhale Coding Agent", lifespan=lifespan)
     app.state.sessions = manager
     app.state.approvals = approvals
+    desktop_guard = DesktopSessionGuard(desktop_token) if desktop_token is not None else None
+
+    if desktop_guard is not None:
+
+        @app.middleware("http")
+        async def require_desktop_session(
+            request: Request,
+            call_next: RequestResponseEndpoint,
+        ) -> Response:
+            if request.url.path in {"/api/health", "/desktop/bootstrap"}:
+                return await call_next(request)
+            if not desktop_guard.accepts_session(request.cookies.get(DESKTOP_COOKIE)):
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Desktop session required"},
+                )
+            return await call_next(request)
+
     static_directory = Path(__file__).parent / "static"
     app.mount("/static", StaticFiles(directory=static_directory), name="static")
 
@@ -76,6 +110,25 @@ def create_app(
     @app.get("/api/health", response_model=HealthResponse)
     async def health() -> HealthResponse:
         return HealthResponse()
+
+    if desktop_guard is not None:
+
+        @app.get("/desktop/bootstrap", include_in_schema=False)
+        async def desktop_bootstrap(token: str | None = None) -> Response:
+            if not desktop_guard.accepts_bootstrap(token):
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid desktop bootstrap token"},
+                )
+            response = RedirectResponse(url="/", status_code=303)
+            response.set_cookie(
+                DESKTOP_COOKIE,
+                desktop_guard.session_token,
+                httponly=True,
+                samesite="strict",
+                path="/",
+            )
+            return response
 
     @app.post(
         "/api/runs",

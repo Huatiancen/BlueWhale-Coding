@@ -30,6 +30,11 @@ async def test_root_serves_accessible_four_region_workspace(tmp_path: Path) -> N
     assert 'aria-live="polite"' in html
     assert 'href="#workspace-main"' in html
     assert 'type="module" src="/static/js/app.js"' in html
+    assert 'id="open-project"' in html
+    assert 'id="desktop-project"' in html
+    assert 'id="model-settings"' in html
+    assert 'id="api-key-input"' in html
+    assert 'type="password"' in html
     assert re.search(r"https?://", html) is None
 
 
@@ -70,7 +75,7 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     }
     combined = "\n".join(scripts.values())
 
-    assert set(scripts) == {"api.js", "app.js", "render.js", "store.js"}
+    assert set(scripts) == {"api.js", "app.js", "desktop.js", "render.js", "store.js"}
     assert "innerHTML" not in combined
     assert "insertAdjacentHTML" not in combined
     assert "document.write" not in combined
@@ -78,6 +83,10 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "textContent" in scripts["render.js"]
     assert "fetch(" in scripts["api.js"]
     assert "new EventSource" in scripts["api.js"]
+    assert "workspace_grant_id" in scripts["api.js"]
+    assert "pywebviewready" in scripts["desktop.js"]
+    assert "localStorage" not in scripts["desktop.js"]
+    assert "sessionStorage" not in scripts["desktop.js"]
     assert "runs:" in scripts["store.js"]
     assert "activeRunId:" in scripts["store.js"]
     assert "events:" in scripts["store.js"]

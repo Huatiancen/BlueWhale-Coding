@@ -23,6 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--workspace", required=True, help="Project directory to operate on.")
     serve_parser.add_argument("--host", default="127.0.0.1", help="HTTP bind host.")
     serve_parser.add_argument("--port", default=8000, type=int, help="HTTP bind port.")
+    subparsers.add_parser("desktop", help="Start the native macOS application.")
 
     return parser
 
@@ -31,6 +32,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Validate startup options and run the local BlueWhale Web application."""
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command == "desktop":
+        from bluewhale_agent.desktop.launcher import run_desktop
+
+        return run_desktop()
     workspace = Path(args.workspace).resolve(strict=False)
     if not workspace.is_dir():
         parser.error(f"workspace does not exist or is not a directory: {args.workspace}")
