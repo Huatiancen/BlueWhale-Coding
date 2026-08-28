@@ -3,6 +3,7 @@ export const state = {
   activeRunId: null,
   events: new Map(),
   connectionState: "idle",
+  permissionMode: "balanced",
 };
 
 const subscribers = new Set();
@@ -52,6 +53,11 @@ export function addEvent(runId, storedEvent) {
 
 export function setConnectionState(connectionState) {
   state.connectionState = connectionState;
+  notify();
+}
+
+export function setPermissionMode(permissionMode) {
+  state.permissionMode = permissionMode;
   notify();
 }
 

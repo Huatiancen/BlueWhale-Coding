@@ -6,7 +6,11 @@ import pytest
 from bluewhale_agent.domain.models import Action
 from bluewhale_agent.runtime.changeset import ChangeSet
 from bluewhale_agent.runtime.paths import WorkspacePaths
-from bluewhale_agent.runtime.permissions import PermissionDecision, PermissionPolicy
+from bluewhale_agent.runtime.permissions import (
+    PermissionDecision,
+    PermissionMode,
+    PermissionPolicy,
+)
 from bluewhale_agent.tools import mutation
 from bluewhale_agent.tools.base import ToolContext, ToolExecutionError
 from bluewhale_agent.tools.mutation import ApplyPatchTool, GetDiffTool, WriteFileTool
@@ -201,28 +205,45 @@ def test_get_diff_includes_empty_created_file() -> None:
     assert "+++ b/empty.txt" in diff
 
 
-def test_permission_policy_asks_only_before_overwriting_with_write_file(tmp_path: Path) -> None:
+@pytest.mark.parametrize("filename", ["new.py", "existing.py"])
+def test_balanced_permission_allows_workspace_write_file(
+    tmp_path: Path, filename: str
+) -> None:
     (tmp_path / "existing.py").write_text("old\n", encoding="utf-8")
-    policy = PermissionPolicy(paths=WorkspacePaths(tmp_path))
+    policy = PermissionPolicy(paths=WorkspacePaths(tmp_path), mode=PermissionMode.BALANCED)
 
-    overwrite = policy.evaluate(
+    result = policy.evaluate(
         Action(
             id="1",
             tool_name="write_file",
-            arguments={"path": "existing.py", "content": "new\n"},
+            arguments={"path": filename, "content": "new\n"},
         )
-    )
-    create = policy.evaluate(
-        Action(
-            id="2",
-            tool_name="write_file",
-            arguments={"path": "new.py", "content": "new\n"},
-        )
-    )
-    patch = policy.evaluate(
-        Action(id="3", tool_name="apply_patch", arguments={"path": "existing.py"})
     )
 
-    assert overwrite.decision is PermissionDecision.ASK
-    assert create.decision is PermissionDecision.ALLOW
-    assert patch.decision is PermissionDecision.ALLOW
+    assert result.decision is PermissionDecision.ALLOW
+
+
+@pytest.mark.parametrize("tool_name", ["write_file", "apply_patch"])
+def test_ask_permission_requests_approval_for_mutation(
+    tmp_path: Path, tool_name: str
+) -> None:
+    policy = PermissionPolicy(paths=WorkspacePaths(tmp_path), mode=PermissionMode.ASK)
+
+    result = policy.evaluate(
+        Action(id="1", tool_name=tool_name, arguments={"path": "module.py"})
+    )
+
+    assert result.decision is PermissionDecision.ASK
+
+
+@pytest.mark.parametrize("mode", list(PermissionMode))
+def test_all_permission_modes_deny_write_outside_workspace(
+    tmp_path: Path, mode: PermissionMode
+) -> None:
+    policy = PermissionPolicy(paths=WorkspacePaths(tmp_path), mode=mode)
+
+    result = policy.evaluate(
+        Action(id="1", tool_name="write_file", arguments={"path": "../outside.py"})
+    )
+
+    assert result.decision is PermissionDecision.DENY

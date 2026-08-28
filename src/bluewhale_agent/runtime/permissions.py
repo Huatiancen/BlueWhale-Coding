@@ -21,6 +21,14 @@ class PermissionDecision(StrEnum):
     DENY = "deny"
 
 
+class PermissionMode(StrEnum):
+    """User-selected approval strictness for one agent run."""
+
+    ASK = "ask"
+    BALANCED = "balanced"
+    FULL = "full"
+
+
 class PermissionResult(BaseModel):
     """Permission decision plus a user-facing reason."""
 
@@ -35,8 +43,13 @@ class PermissionPolicy:
 
     READ_ONLY_TOOLS = frozenset({"get_diff", "list_files", "read_file", "search_text"})
 
-    def __init__(self, paths: WorkspacePaths | None = None) -> None:
+    def __init__(
+        self,
+        paths: WorkspacePaths | None = None,
+        mode: PermissionMode = PermissionMode.BALANCED,
+    ) -> None:
         self._paths = paths
+        self._mode = mode
 
     def evaluate(self, action: Action) -> PermissionResult:
         if action.tool_name in self.READ_ONLY_TOOLS:
@@ -45,12 +58,9 @@ class PermissionPolicy:
                 reason="Known read-only workspace tool",
             )
         if action.tool_name == "apply_patch":
-            return PermissionResult(
-                decision=PermissionDecision.ALLOW,
-                reason="Patch requires one exact workspace match",
-            )
+            return self._evaluate_file_mutation(action)
         if action.tool_name == "write_file":
-            return self._evaluate_write_file(action)
+            return self._evaluate_file_mutation(action)
         if action.tool_name == "run_command":
             return self._evaluate_run_command(action)
         return PermissionResult(
@@ -58,29 +68,28 @@ class PermissionPolicy:
             reason=f"Tool is not allowed by the current policy: {action.tool_name}",
         )
 
-    def _evaluate_write_file(self, action: Action) -> PermissionResult:
+    def _evaluate_file_mutation(self, action: Action) -> PermissionResult:
         requested = action.arguments.get("path")
         if not isinstance(requested, str) or self._paths is None:
             return PermissionResult(
-                decision=PermissionDecision.ASK,
-                reason="File write requires explicit approval",
+                decision=PermissionDecision.DENY,
+                reason="File mutation requires a valid workspace path",
             )
         try:
-            target = self._paths.resolve(requested, must_exist=False)
+            self._paths.resolve(requested, must_exist=False)
         except PathAccessError as exc:
             return PermissionResult(decision=PermissionDecision.DENY, reason=str(exc))
-        if target.exists():
+        if self._mode is PermissionMode.ASK:
             return PermissionResult(
                 decision=PermissionDecision.ASK,
-                reason="Overwriting an existing file requires approval",
+                reason="Current permission mode requires approval for file changes",
             )
         return PermissionResult(
             decision=PermissionDecision.ALLOW,
-            reason="Creating a new workspace file is allowed",
+            reason="Workspace file mutation is allowed by the current permission mode",
         )
 
-    @staticmethod
-    def _evaluate_run_command(action: Action) -> PermissionResult:
+    def _evaluate_run_command(self, action: Action) -> PermissionResult:
         command = action.arguments.get("command")
         if not isinstance(command, str):
             return PermissionResult(
@@ -111,6 +120,16 @@ class PermissionPolicy:
             return PermissionResult(
                 decision=PermissionDecision.DENY,
                 reason="Interactive commands are not supported",
+            )
+        if self._mode is PermissionMode.ASK:
+            return PermissionResult(
+                decision=PermissionDecision.ASK,
+                reason="Current permission mode requires approval for commands",
+            )
+        if self._mode is PermissionMode.FULL:
+            return PermissionResult(
+                decision=PermissionDecision.ALLOW,
+                reason="Non-destructive command is allowed by full access mode",
             )
         if _requires_command_approval(executable, arguments):
             return PermissionResult(

@@ -81,7 +81,12 @@ async def test_api_approval_executes_the_asked_action_once(tmp_path: Path) -> No
     app = create_app(workspace=tmp_path, provider_factory=lambda: provider)
     async with app_client(app) as client:
         created = await client.post(
-            "/api/runs", json={"run_id": "approved", "task": "Update existing.py"}
+            "/api/runs",
+            json={
+                "run_id": "approved",
+                "task": "Update existing.py",
+                "permission_mode": "ask",
+            },
         )
         approval = await wait_for_pending(app.state.approvals, "approved")
         pending_run = await client.get("/api/runs/approved")
@@ -121,7 +126,10 @@ async def test_api_denial_unknown_approval_and_stop_are_safe(tmp_path: Path) -> 
     )
     app = create_app(workspace=tmp_path, provider_factory=lambda: provider)
     async with app_client(app) as client:
-        await client.post("/api/runs", json={"run_id": "denied", "task": "Overwrite"})
+        await client.post(
+            "/api/runs",
+            json={"run_id": "denied", "task": "Overwrite", "permission_mode": "ask"},
+        )
         approval = await wait_for_pending(app.state.approvals, "denied")
         unknown = await client.post(
             "/api/runs/denied/approvals/missing", json={"decision": "approve"}
@@ -147,7 +155,10 @@ async def test_api_denial_unknown_approval_and_stop_are_safe(tmp_path: Path) -> 
     )
     stop_app = create_app(workspace=tmp_path, provider_factory=lambda: blocking)
     async with app_client(stop_app) as client:
-        await client.post("/api/runs", json={"run_id": "stopped", "task": "Overwrite"})
+        await client.post(
+            "/api/runs",
+            json={"run_id": "stopped", "task": "Overwrite", "permission_mode": "ask"},
+        )
         stopped_approval = await wait_for_pending(stop_app.state.approvals, "stopped")
         stopped = await client.post("/api/runs/stopped/stop")
 
@@ -157,6 +168,35 @@ async def test_api_denial_unknown_approval_and_stop_are_safe(tmp_path: Path) -> 
         stop_app.state.approvals.get("stopped", stopped_approval.id).status
         is ApprovalStatus.CANCELLED
     )
+
+
+@pytest.mark.asyncio
+async def test_balanced_mode_overwrites_without_approval(tmp_path: Path) -> None:
+    target = tmp_path / "existing.py"
+    target.write_text("old\n", encoding="utf-8")
+    provider = FakeModelProvider(
+        [
+            ModelResponse(tool_calls=(overwrite_action(),), finish_reason="tool_calls"),
+            ModelResponse(content="Updated.", finish_reason="stop"),
+        ]
+    )
+    app = create_app(workspace=tmp_path, provider_factory=lambda: provider)
+
+    async with app_client(app) as client:
+        created = await client.post(
+            "/api/runs",
+            json={
+                "run_id": "balanced",
+                "task": "Overwrite",
+                "permission_mode": "balanced",
+            },
+        )
+        finished = await wait_for_terminal(client, "balanced")
+
+    assert created.status_code == 202
+    assert finished["status"] == "completed"
+    assert target.read_text(encoding="utf-8") == "new\n"
+    assert app.state.approvals.list_for_run("balanced") == ()
 
 
 async def wait_for_pending(broker: ApprovalBroker, run_id: str):

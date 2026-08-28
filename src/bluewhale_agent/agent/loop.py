@@ -31,7 +31,11 @@ from bluewhale_agent.providers.base import (
 )
 from bluewhale_agent.runtime.command import RunCommandTool
 from bluewhale_agent.runtime.paths import WorkspacePaths
-from bluewhale_agent.runtime.permissions import PermissionPolicy, PermissionResult
+from bluewhale_agent.runtime.permissions import (
+    PermissionMode,
+    PermissionPolicy,
+    PermissionResult,
+)
 from bluewhale_agent.tools.base import ToolContext
 from bluewhale_agent.tools.filesystem import ListFilesTool, ReadFileTool, SearchTextTool
 from bluewhale_agent.tools.mutation import ApplyPatchTool, GetDiffTool, WriteFileTool
@@ -96,6 +100,7 @@ class AgentLoop:
         trajectory: TrajectoryStore | None = None,
         event_sink: Callable[[StoredEvent], None] | None = None,
         approval_handler: Callable[[Action, PermissionResult], Awaitable[bool]] | None = None,
+        permission_mode: PermissionMode = PermissionMode.BALANCED,
     ) -> None:
         self._run_id = run_id
         self._provider = provider
@@ -118,7 +123,7 @@ class AgentLoop:
                 RunCommandTool(),
             ],
             context=self._context,
-            permission_policy=PermissionPolicy(paths=self._paths),
+            permission_policy=PermissionPolicy(paths=self._paths, mode=permission_mode),
             approval_handler=approval_handler,
         )
         self._context_manager = ContextManager(max_chars=max_context_chars)

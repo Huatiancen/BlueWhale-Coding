@@ -81,6 +81,30 @@
                     <span class="folder-icon" aria-hidden="true">▣</span>
                     <span class="project-copy"><strong id="project-name">选择项目</strong><small id="project-path">未授权工作区</small></span>
                   </button>
+                  <div class="permission-control">
+                    <button id="permission-trigger" class="permission-trigger" type="button" aria-haspopup="menu" aria-expanded="false">
+                      <span class="permission-trigger-icon" aria-hidden="true">◉</span>
+                      <span id="permission-label">帮我批准</span>
+                      <span class="permission-chevron" aria-hidden="true">⌄</span>
+                    </button>
+                    <div id="permission-menu" class="permission-menu" role="menu" aria-label="权限模式" hidden>
+                      <button class="permission-option" type="button" role="menuitemradio" aria-checked="false" data-permission-mode="ask">
+                        <span class="permission-option-icon" aria-hidden="true">✋</span>
+                        <span class="permission-option-copy"><strong>请求批准</strong><small>编辑文件和运行命令时始终询问</small></span>
+                        <span class="permission-check" aria-hidden="true">✓</span>
+                      </button>
+                      <button class="permission-option" type="button" role="menuitemradio" aria-checked="true" data-permission-mode="balanced">
+                        <span class="permission-option-icon" aria-hidden="true">◉</span>
+                        <span class="permission-option-copy"><strong>帮我批准</strong><small>仅对检测到的风险操作请求批准</small></span>
+                        <span class="permission-check" aria-hidden="true">✓</span>
+                      </button>
+                      <button class="permission-option full" type="button" role="menuitemradio" aria-checked="false" data-permission-mode="full">
+                        <span class="permission-option-icon" aria-hidden="true">!</span>
+                        <span class="permission-option-copy"><strong>完全访问权限</strong><small>可不受限制地访问互联网和工作区内文件</small></span>
+                        <span class="permission-check" aria-hidden="true">✓</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 <div class="composer-actions">
                   <button id="stop-run" class="send-button stop" type="button" aria-label="停止任务" hidden><span aria-hidden="true">■</span></button>

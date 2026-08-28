@@ -36,8 +36,8 @@ export function getRun(runId) {
   return request(`/api/runs/${encodeURIComponent(runId)}`);
 }
 
-export function createRun({ task, workspace, workspaceGrantId }) {
-  const body = { task };
+export function createRun({ task, workspace, workspaceGrantId, permissionMode }) {
+  const body = { task, permission_mode: permissionMode };
   if (workspaceGrantId) body.workspace_grant_id = workspaceGrantId;
   else body.workspace = workspace || ".";
   return request("/api/runs", {

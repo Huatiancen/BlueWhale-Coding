@@ -11,7 +11,11 @@ import pytest
 from bluewhale_agent.domain.models import Action, ObservationStatus
 from bluewhale_agent.runtime.command import RunCommandTool
 from bluewhale_agent.runtime.paths import WorkspacePaths
-from bluewhale_agent.runtime.permissions import PermissionDecision, PermissionPolicy
+from bluewhale_agent.runtime.permissions import (
+    PermissionDecision,
+    PermissionMode,
+    PermissionPolicy,
+)
 from bluewhale_agent.tools.base import ToolContext, ToolExecutionError
 from bluewhale_agent.tools.registry import ToolRegistry
 
@@ -236,6 +240,27 @@ async def test_run_command_rejects_interactive_program(tmp_path: Path) -> None:
 )
 def test_command_permission_classification(command: str, expected: PermissionDecision) -> None:
     result = PermissionPolicy().evaluate(
+        Action(id="1", tool_name="run_command", arguments={"command": command})
+    )
+
+    assert result.decision is expected
+
+
+@pytest.mark.parametrize(
+    ("mode", "command", "expected"),
+    [
+        (PermissionMode.ASK, "pytest -q", PermissionDecision.ASK),
+        (PermissionMode.FULL, "custom-build --release", PermissionDecision.ALLOW),
+        (PermissionMode.FULL, "curl https://example.com", PermissionDecision.ALLOW),
+        (PermissionMode.ASK, "rm -rf build", PermissionDecision.DENY),
+        (PermissionMode.BALANCED, "bash", PermissionDecision.DENY),
+        (PermissionMode.FULL, "git reset --hard", PermissionDecision.DENY),
+    ],
+)
+def test_command_permission_modes(
+    mode: PermissionMode, command: str, expected: PermissionDecision
+) -> None:
+    result = PermissionPolicy(mode=mode).evaluate(
         Action(id="1", tool_name="run_command", arguments={"command": command})
     )
 

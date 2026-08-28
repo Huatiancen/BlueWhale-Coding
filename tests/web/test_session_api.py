@@ -9,8 +9,10 @@ import httpx
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
+from pydantic import ValidationError
 
 from bluewhale_agent.domain.models import ModelResponse
+from bluewhale_agent.runtime.permissions import PermissionMode
 from bluewhale_agent.web.app import create_app
 from bluewhale_agent.web.schemas import RunCreateRequest
 from bluewhale_agent.web.sessions import SessionManager
@@ -29,6 +31,17 @@ class BlockingProvider:
         self.started.set()
         await asyncio.Event().wait()
         raise AssertionError("unreachable")
+
+
+def test_run_create_request_defaults_to_balanced_permission() -> None:
+    request = RunCreateRequest(task="Inspect")
+
+    assert request.permission_mode is PermissionMode.BALANCED
+
+
+def test_run_create_request_rejects_unknown_permission_mode() -> None:
+    with pytest.raises(ValidationError):
+        RunCreateRequest(task="Inspect", permission_mode="unknown")
 
 
 @pytest.fixture
@@ -197,6 +210,15 @@ async def test_provider_configuration_error_is_reported_as_503(tmp_path: Path) -
 
     assert response.status_code == 503
     assert response.json()["detail"] == "DEEPSEEK_API_KEY is required"
+
+
+@pytest.mark.asyncio
+async def test_api_rejects_unknown_permission_mode(client: httpx.AsyncClient) -> None:
+    response = await client.post(
+        "/api/runs", json={"task": "Inspect", "permission_mode": "unknown"}
+    )
+
+    assert response.status_code == 422
 
 
 async def wait_for_terminal(client: httpx.AsyncClient, run_id: str) -> dict[str, object]:

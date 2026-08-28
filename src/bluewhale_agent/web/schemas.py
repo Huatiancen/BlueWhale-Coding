@@ -7,6 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from bluewhale_agent.domain.models import RunStatus, StopReason
+from bluewhale_agent.runtime.permissions import PermissionMode
 from bluewhale_agent.web.approvals import ApprovalDecision
 
 
@@ -24,6 +25,7 @@ class RunCreateRequest(BaseModel):
     )
     workspace: str | None = Field(default=None, min_length=1)
     workspace_grant_id: str | None = Field(default=None, min_length=1)
+    permission_mode: PermissionMode = PermissionMode.BALANCED
 
 
 class ApprovalResolveRequest(BaseModel):

@@ -140,6 +140,7 @@ class SessionManager:
                 trajectory=trajectory,
                 event_sink=event_bus.publish,
                 approval_handler=approval_handler,
+                permission_mode=request.permission_mode,
             )
             self._sessions[run_id] = session
             session.background = asyncio.create_task(self._execute(session, loop))

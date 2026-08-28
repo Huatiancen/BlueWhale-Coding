@@ -147,7 +147,11 @@ async def test_desktop_shutdown_cancels_active_run_and_pending_approval(
         provider_factory=lambda: provider,
     )
     session = await app.state.sessions.create(
-        RunCreateRequest(task="Wait for approval", workspace_grant_id=grant.id)
+            RunCreateRequest(
+                task="Wait for approval",
+                workspace_grant_id=grant.id,
+                permission_mode="ask",
+            )
     )
 
     for _ in range(100):

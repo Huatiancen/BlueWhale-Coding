@@ -19,6 +19,7 @@ import {
   addEvent,
   selectRun,
   setConnectionState,
+  setPermissionMode,
   setRuns,
   state,
   subscribe,
@@ -54,6 +55,10 @@ const elements = {
   conversation: document.querySelector("#conversation-panel"),
   conversationEmpty: document.querySelector("#conversation-empty"),
   workDetails: document.querySelector("#work-details"),
+  permissionTrigger: document.querySelector("#permission-trigger"),
+  permissionLabel: document.querySelector("#permission-label"),
+  permissionMenu: document.querySelector("#permission-menu"),
+  permissionOptions: [...document.querySelectorAll("[data-permission-mode]")],
 };
 
 let closeEventStream = null;
@@ -67,6 +72,7 @@ subscribe((snapshot) => {
     onResolveApproval: submitApproval,
   });
   updateControls();
+  renderPermissionControl(snapshot.permissionMode);
 });
 
 elements.taskForm.addEventListener("submit", submitTask);
@@ -80,6 +86,12 @@ elements.apiKeyForm.addEventListener("submit", saveApiKey);
 elements.clearApiKey.addEventListener("click", clearApiKey);
 elements.taskInput.addEventListener("input", resizeComposer);
 elements.taskInput.addEventListener("keydown", submitWithShortcut);
+elements.permissionTrigger.addEventListener("click", togglePermissionMenu);
+for (const option of elements.permissionOptions) {
+  option.addEventListener("click", () => choosePermissionMode(option.dataset.permissionMode));
+}
+document.addEventListener("click", closePermissionMenuFromOutside);
+document.addEventListener("keydown", closePermissionMenuWithEscape);
 
 await boot();
 
@@ -109,7 +121,12 @@ async function submitTask(event) {
   setBusy(true);
   hideNotice();
   try {
-    const run = await createRun({ task, workspace, workspaceGrantId });
+    const run = await createRun({
+      task,
+      workspace,
+      workspaceGrantId,
+      permissionMode: state.permissionMode,
+    });
     upsertRun(run);
     selectRun(run.id);
     elements.taskInput.value = "";
@@ -291,6 +308,49 @@ function updateControls() {
     busy || active || Boolean(desktopBridge && !workspaceGrantId);
   elements.taskInput.disabled = busy || active;
   elements.workspaceInput.disabled = busy || active;
+  elements.permissionTrigger.disabled = busy || active;
+  if (busy || active) closePermissionMenu();
+}
+
+function togglePermissionMenu(event) {
+  event.stopPropagation();
+  if (elements.permissionTrigger.disabled) return;
+  const opening = elements.permissionMenu.hidden;
+  elements.permissionMenu.hidden = !opening;
+  elements.permissionTrigger.setAttribute("aria-expanded", String(opening));
+}
+
+function choosePermissionMode(permissionMode) {
+  if (!permissionMode) return;
+  setPermissionMode(permissionMode);
+  closePermissionMenu();
+}
+
+function renderPermissionControl(permissionMode) {
+  const labels = { ask: "请求批准", balanced: "帮我批准", full: "完全访问权限" };
+  elements.permissionLabel.textContent = labels[permissionMode];
+  elements.permissionTrigger.dataset.permissionMode = permissionMode;
+  for (const option of elements.permissionOptions) {
+    option.setAttribute("aria-checked", String(option.dataset.permissionMode === permissionMode));
+  }
+}
+
+function closePermissionMenu() {
+  elements.permissionMenu.hidden = true;
+  elements.permissionTrigger.setAttribute("aria-expanded", "false");
+}
+
+function closePermissionMenuFromOutside(event) {
+  if (!elements.permissionMenu.hidden && !event.target.closest(".permission-control")) {
+    closePermissionMenu();
+  }
+}
+
+function closePermissionMenuWithEscape(event) {
+  if (event.key === "Escape" && !elements.permissionMenu.hidden) {
+    closePermissionMenu();
+    elements.permissionTrigger.focus();
+  }
 }
 
 function resizeComposer() {

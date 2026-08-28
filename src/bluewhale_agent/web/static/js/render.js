@@ -1,3 +1,5 @@
+import { renderMarkdown } from "./markdown.js";
+
 const ACTIVE_STATUSES = new Set(["initializing", "running", "waiting_approval", "verifying"]);
 
 export function renderWorkspace(elements, snapshot, callbacks) {
@@ -77,7 +79,9 @@ function renderConversation(elements, run, events, onResolveApproval) {
     const { kind, payload } = stored.event;
     if (kind === "model_response" && payload.content) {
       const message = element("article", "message assistant-message");
-      message.append(avatar(), element("p", "message-copy", payload.content));
+      const markdown = renderMarkdown(payload.content);
+      markdown.classList.add("message-copy");
+      message.append(avatar(), markdown);
       elements.conversation.append(message);
     } else if (kind === "approval_requested") {
       elements.conversation.append(approvalCard(stored, events, onResolveApproval));

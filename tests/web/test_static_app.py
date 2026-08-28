@@ -41,6 +41,12 @@ async def test_root_serves_accessible_conversation_workspace(tmp_path: Path) -> 
     assert 'type="module" src="/static/js/app.js?v=codex-ui-2"' in html
     assert 'id="open-project"' in html
     assert 'id="desktop-project"' in html
+    assert 'id="permission-trigger"' in html
+    assert 'id="permission-menu"' in html
+    assert html.count("data-permission-mode=") == 3
+    assert 'data-permission-mode="ask"' in html
+    assert 'data-permission-mode="balanced"' in html
+    assert 'data-permission-mode="full"' in html
     assert 'id="model-settings"' in html
     assert 'id="api-key-input"' in html
     assert 'type="password"' in html
@@ -87,12 +93,21 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     }
     combined = "\n".join(scripts.values())
 
-    assert set(scripts) == {"api.js", "app.js", "desktop.js", "render.js", "store.js"}
+    assert set(scripts) == {
+        "api.js",
+        "app.js",
+        "desktop.js",
+        "markdown.js",
+        "render.js",
+        "store.js",
+    }
     assert "innerHTML" not in combined
     assert "insertAdjacentHTML" not in combined
     assert "document.write" not in combined
     assert "eval(" not in combined
     assert "textContent" in scripts["render.js"]
+    assert "renderMarkdown" in scripts["render.js"]
+    assert "createElement" in scripts["markdown.js"]
     assert "fetch(" in scripts["api.js"]
     assert "new EventSource" in scripts["api.js"]
     assert "workspace_grant_id" in scripts["api.js"]
@@ -103,6 +118,11 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "activeRunId:" in scripts["store.js"]
     assert "events:" in scripts["store.js"]
     assert "connectionState:" in scripts["store.js"]
+    assert 'permissionMode: "balanced"' in scripts["store.js"]
+    assert "setPermissionMode" in scripts["store.js"]
+    assert "permission_mode" in scripts["api.js"]
+    assert "permissionMode" in scripts["app.js"]
+    assert "aria-checked" in scripts["app.js"]
     assert "selectedPanel:" not in scripts["store.js"]
     assert "document.createElement(\"details\")" in scripts["render.js"]
     assert "humanToolLabel" in scripts["render.js"]
