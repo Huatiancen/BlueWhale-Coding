@@ -20,7 +20,6 @@ import {
   selectRun,
   setConnectionState,
   setRuns,
-  setSelectedPanel,
   state,
   subscribe,
   upsertRun,
@@ -50,14 +49,11 @@ const elements = {
   stopButton: document.querySelector("#stop-run"),
   refreshButton: document.querySelector("#refresh-runs"),
   notice: document.querySelector("#app-notice"),
+  runTitle: document.querySelector("#active-run-title"),
   runStatus: document.querySelector("#run-status"),
   conversation: document.querySelector("#conversation-panel"),
   conversationEmpty: document.querySelector("#conversation-empty"),
-  evidenceTab: document.querySelector("#evidence-tab"),
-  changesTab: document.querySelector("#changes-tab"),
-  evidencePanel: document.querySelector("#evidence-panel"),
-  changesPanel: document.querySelector("#changes-panel"),
-  timeline: document.querySelector("#activity-timeline"),
+  workDetails: document.querySelector("#work-details"),
 };
 
 let closeEventStream = null;
@@ -70,19 +66,20 @@ subscribe((snapshot) => {
     onSelectRun: activateRun,
     onResolveApproval: submitApproval,
   });
-  updateDesktopControls();
+  updateControls();
 });
 
 elements.taskForm.addEventListener("submit", submitTask);
 elements.stopButton.addEventListener("click", stopActiveRun);
 elements.refreshButton.addEventListener("click", refreshRuns);
-elements.evidenceTab.addEventListener("click", () => setSelectedPanel("evidence"));
-elements.changesTab.addEventListener("click", () => setSelectedPanel("changes"));
 elements.openProject.addEventListener("click", openDesktopProject);
+elements.desktopProject.addEventListener("click", openDesktopProject);
 elements.openModelSettings.addEventListener("click", showModelSettings);
 elements.closeModelSettings.addEventListener("click", () => elements.modelSettings.close());
 elements.apiKeyForm.addEventListener("submit", saveApiKey);
 elements.clearApiKey.addEventListener("click", clearApiKey);
+elements.taskInput.addEventListener("input", resizeComposer);
+elements.taskInput.addEventListener("keydown", submitWithShortcut);
 
 await boot();
 
@@ -116,6 +113,7 @@ async function submitTask(event) {
     upsertRun(run);
     selectRun(run.id);
     elements.taskInput.value = "";
+    resizeComposer();
     connectToRun(run.id);
   } catch (error) {
     showNotice(error.message, true);
@@ -183,7 +181,7 @@ function connectToRun(runId) {
         setConnectionState("idle");
         try {
           upsertRun(await getRun(runId));
-          updateDesktopControls();
+          updateControls();
         } catch (error) {
           showNotice(error.message, true);
         }
@@ -202,7 +200,7 @@ function setBusy(isBusy) {
   elements.submitButton.disabled = isBusy || Boolean(desktopBridge && !workspaceGrantId);
   elements.taskInput.disabled = isBusy;
   elements.workspaceInput.disabled = isBusy;
-  window.requestAnimationFrame(updateDesktopControls);
+  window.requestAnimationFrame(updateControls);
 }
 
 async function initializeDesktop() {
@@ -211,11 +209,12 @@ async function initializeDesktop() {
   document.body.dataset.runtime = "desktop";
   elements.desktopControls.hidden = false;
   elements.desktopProject.hidden = false;
+  elements.openModelSettings.hidden = false;
   elements.workspaceField.hidden = true;
   const workspace = await getDesktopWorkspaceState(desktopBridge);
   if (workspace.configured) applyWorkspace(workspace);
   await refreshSecretState();
-  updateDesktopControls();
+  updateControls();
 }
 
 async function openDesktopProject() {
@@ -229,7 +228,7 @@ async function openDesktopProject() {
   } catch (error) {
     showNotice(error.message, true);
   }
-  updateDesktopControls();
+  updateControls();
 }
 
 function applyWorkspace(workspace) {
@@ -282,13 +281,27 @@ async function clearApiKey() {
   }
 }
 
-function updateDesktopControls() {
-  if (!desktopBridge) return;
+function updateControls() {
   const active = state.runs.some((run) =>
     ["initializing", "running", "waiting_approval", "verifying"].includes(run.status),
   );
   elements.openProject.disabled = busy || active;
-  elements.submitButton.disabled = busy || !workspaceGrantId || active;
+  elements.desktopProject.disabled = busy || active;
+  elements.submitButton.disabled =
+    busy || active || Boolean(desktopBridge && !workspaceGrantId);
+  elements.taskInput.disabled = busy || active;
+  elements.workspaceInput.disabled = busy || active;
+}
+
+function resizeComposer() {
+  elements.taskInput.style.height = "auto";
+  elements.taskInput.style.height = `${Math.min(elements.taskInput.scrollHeight, 180)}px`;
+}
+
+function submitWithShortcut(event) {
+  if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
+  event.preventDefault();
+  elements.taskForm.requestSubmit();
 }
 
 function showNotice(message, isError = false) {

@@ -13,23 +13,32 @@ from tests.fakes import FakeModelProvider
 
 
 @pytest.mark.asyncio
-async def test_root_serves_accessible_four_region_workspace(tmp_path: Path) -> None:
+async def test_root_serves_accessible_conversation_workspace(tmp_path: Path) -> None:
     async with app_client(tmp_path) as client:
         response = await client.get("/")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
+    assert response.headers["cache-control"] == "no-store"
     html = response.text
+    assert '<meta name="color-scheme" content="light">' in html
     assert 'id="task-form"' in html
     assert 'for="task-input"' in html
     assert 'id="session-list"' in html
     assert 'id="conversation-panel"' in html
-    assert 'id="activity-timeline"' in html
-    assert 'id="changes-panel"' in html
-    assert 'id="evidence-panel"' in html
+    assert 'id="conversation-shell"' in html
+    assert 'id="composer-shell"' in html
+    assert 'id="work-details"' in html
+    assert 'id="activity-timeline"' not in html
+    assert 'id="changes-panel"' not in html
+    assert 'id="evidence-panel"' not in html
+    assert ">Evidence<" not in html
+    assert ">Changes<" not in html
+    assert "TRAJECTORY" not in html
     assert 'aria-live="polite"' in html
     assert 'href="#workspace-main"' in html
-    assert 'type="module" src="/static/js/app.js"' in html
+    assert 'href="/static/styles.css?v=codex-ui-2"' in html
+    assert 'type="module" src="/static/js/app.js?v=codex-ui-2"' in html
     assert 'id="open-project"' in html
     assert 'id="desktop-project"' in html
     assert 'id="model-settings"' in html
@@ -49,6 +58,7 @@ async def test_static_assets_have_correct_types_and_unknown_asset_is_404(
 
     assert css.status_code == 200
     assert css.headers["content-type"].startswith("text/css")
+    assert css.headers["cache-control"] == "no-store"
     assert javascript.status_code == 200
     assert "javascript" in javascript.headers["content-type"]
     assert missing.status_code == 404
@@ -62,7 +72,9 @@ def test_styles_define_bluewhale_palette_and_responsive_layout() -> None:
     assert "--success" in css
     assert "--warning" in css
     assert "--danger" in css
-    assert "grid-template-areas" in css
+    assert ".conversation-shell" in css
+    assert ".composer-shell" in css
+    assert "max-width: 860px" in css
     assert "@media" in css
     assert "prefers-reduced-motion" in css
     assert "url(http" not in css
@@ -91,9 +103,12 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "activeRunId:" in scripts["store.js"]
     assert "events:" in scripts["store.js"]
     assert "connectionState:" in scripts["store.js"]
-    assert "selectedPanel:" in scripts["store.js"]
-    for category in ("PLAN", "MODEL", "TOOL", "EDIT", "TEST", "ERROR", "DONE"):
-        assert category in scripts["render.js"]
+    assert "selectedPanel:" not in scripts["store.js"]
+    assert "document.createElement(\"details\")" in scripts["render.js"]
+    assert "humanToolLabel" in scripts["render.js"]
+    assert "shortId(run.id)" not in scripts["render.js"]
+    assert "activity-timeline" not in scripts["app.js"]
+    assert 'elements.taskInput.value = "";\n    resizeComposer();' in scripts["app.js"]
 
 
 def test_static_assets_are_included_in_package_configuration() -> None:

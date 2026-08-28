@@ -3,159 +3,114 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="dark">
-    <meta name="theme-color" content="#06151f">
-    <title>BlueWhale Coding Agent</title>
-    <link rel="stylesheet" href="/static/styles.css">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#f7f8f8">
+    <title>BlueWhale</title>
+    <link rel="stylesheet" href="/static/styles.css?v=codex-ui-2">
   </head>
   <body>
-    <a class="skip-link" href="#workspace-main">跳到主要工作区</a>
+    <a class="skip-link" href="#workspace-main">跳到对话</a>
 
     <div class="app-shell">
-      <header class="masthead">
-        <div class="brand-lockup" aria-label="BlueWhale Coding Agent">
-          <span class="brand-mark" aria-hidden="true"><span></span></span>
-          <div>
-            <p class="eyebrow">LOCAL AGENT HARNESS</p>
-            <h1>BlueWhale <span>Coding Agent</span></h1>
+      <aside class="sidebar" aria-labelledby="app-title">
+        <header class="sidebar-header">
+          <div class="brand-lockup">
+            <span class="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M4.2 13.2c1.2 3.6 4 5.6 7.8 5.6 4.5 0 7.3-2.6 7.8-6.9-1.4 1.1-3 1.7-4.9 1.7-2.7 0-4.7-1.1-6.2-3.4-.5 1.7-2 2.8-4.5 3Z"></path><path d="M15.7 8.8c.5-1.8 1.8-3 3.9-3.5-.1 2.2-1 3.8-2.8 4.8"></path></svg>
+            </span>
+            <h1 id="app-title">BlueWhale</h1>
           </div>
-        </div>
-        <div class="header-actions">
-          <div id="desktop-controls" class="desktop-controls" hidden>
-            <button id="open-project" class="button secondary compact-button" type="button">打开项目</button>
-            <button id="open-model-settings" class="icon-button" type="button" aria-label="模型设置">⚙</button>
-          </div>
-          <div class="connection-cluster">
-            <span class="pulse-dot" aria-hidden="true"></span>
-            <span id="connection-status" class="connection-status" aria-live="polite">正在连接</span>
-          </div>
-        </div>
-      </header>
+          <button id="refresh-runs" class="icon-button" type="button" aria-label="刷新任务"><span aria-hidden="true">↻</span></button>
+        </header>
 
-      <aside class="sessions panel" aria-labelledby="sessions-title">
-        <div class="panel-heading">
-          <div>
-            <p class="section-index">01 / RUNS</p>
-            <h2 id="sessions-title">任务会话</h2>
+        <div id="desktop-controls" class="desktop-controls" hidden>
+          <button id="open-project" class="project-button" type="button"><span aria-hidden="true">+</span><span>打开项目</span></button>
+        </div>
+
+        <nav class="session-nav" aria-label="历史任务">
+          <p class="sidebar-label">任务</p>
+          <ol id="session-list" class="session-list"></ol>
+          <div id="session-empty" class="sidebar-empty">
+            <p>还没有任务</p>
+            <small>选择项目后，给 BlueWhale 一个目标。</small>
           </div>
-          <button id="refresh-runs" class="icon-button" type="button" aria-label="刷新任务列表">↻</button>
-        </div>
-        <ol id="session-list" class="session-list" aria-label="任务会话列表"></ol>
-        <div id="session-empty" class="empty-state compact">
-          <span class="empty-glyph" aria-hidden="true">◌</span>
-          <p>尚无任务</p>
-          <small>提交指令后，执行轨迹会出现在这里。</small>
-        </div>
+        </nav>
+
+        <footer class="sidebar-footer">
+          <div class="connection-cluster" data-state="idle" hidden>
+            <span class="pulse-dot" aria-hidden="true"></span>
+            <span id="connection-status" aria-live="polite">正在连接</span>
+          </div>
+          <button id="open-model-settings" class="settings-button" type="button" hidden><span aria-hidden="true">⚙</span><span>模型设置</span></button>
+        </footer>
       </aside>
 
-      <main id="workspace-main" class="conversation panel" tabindex="-1">
-        <section class="task-composer" aria-labelledby="task-title">
-          <div class="composer-copy">
-            <p class="section-index">02 / MISSION</p>
-            <h2 id="task-title">给 BlueWhale 一个明确目标</h2>
-            <p>Agent 会在本地工作区内检查、修改并验证代码，每一步都会留下证据。</p>
-          </div>
-          <form id="task-form" class="task-form">
-            <label for="task-input">开发任务</label>
-            <textarea
-              id="task-input"
-              name="task"
-              rows="3"
-              required
-              placeholder="例如：定位登录接口的边界错误，修复后运行相关测试"
-            ></textarea>
-            <div class="form-row">
-              <div class="workspace-field">
-                <label for="workspace-input">工作区</label>
-                <input id="workspace-input" name="workspace" value="." autocomplete="off">
-              </div>
-              <div id="desktop-project" class="desktop-project" hidden>
-                <span class="project-state" aria-hidden="true">◉</span>
-                <span>
-                  <strong id="project-name">尚未选择项目</strong>
-                  <small id="project-path">点击“打开项目”授权工作区</small>
-                </span>
-              </div>
-              <div class="form-actions">
-                <button id="stop-run" class="button secondary" type="button" disabled>停止</button>
-                <button id="submit-task" class="button primary" type="submit">
-                  <span>启动任务</span><span aria-hidden="true">↗</span>
-                </button>
-              </div>
+      <main id="workspace-main" class="workspace-main" tabindex="-1">
+        <section id="conversation-shell" class="conversation-shell" aria-label="Agent 对话">
+          <header class="conversation-header">
+            <div class="conversation-title">
+              <h2 id="active-run-title">新任务</h2>
+              <span id="run-status" class="run-status" hidden>未运行</span>
             </div>
-          </form>
-          <p id="app-notice" class="notice" role="status" aria-live="polite" hidden></p>
-        </section>
+          </header>
 
-        <section class="conversation-stream" aria-labelledby="conversation-title">
-          <div class="stream-heading">
-            <div>
-              <p class="section-index">LIVE CONTEXT</p>
-              <h2 id="conversation-title">Agent 对话</h2>
+          <div class="conversation-scroll">
+            <div id="conversation-panel" class="conversation-feed" aria-live="polite"></div>
+            <div id="conversation-empty" class="welcome-state">
+              <div class="welcome-mark" aria-hidden="true">
+                <svg viewBox="0 0 48 48"><path d="M7 27c2.4 7.5 8.2 11.5 16 11.5 9.2 0 15-5.4 16-14.1-2.8 2.2-6.2 3.5-10 3.5-5.5 0-9.7-2.3-12.7-7-1.1 3.5-4.2 5.5-9.3 6.1Z"></path><path d="M30.5 18c1-3.8 3.7-6.2 8.1-7.2-.2 4.6-2.1 7.8-5.9 9.9"></path></svg>
+              </div>
+              <h2>今天想做什么？</h2>
+              <p>BlueWhale 会阅读项目、完成修改，并在交付前运行验证。</p>
             </div>
-            <span id="run-status" class="status-pill neutral">未运行</span>
+            <section id="work-details" class="work-details" aria-label="工作过程"></section>
+            <p id="app-notice" class="notice" role="status" aria-live="polite" hidden></p>
           </div>
-          <div id="conversation-panel" class="conversation-feed" aria-live="polite"></div>
-          <div id="conversation-empty" class="empty-state">
-            <div class="sonar" aria-hidden="true"><span></span><span></span><span></span></div>
-            <h3>等待下潜指令</h3>
-            <p>模型响应、工具调用和验证结论会汇聚到这里。</p>
+
+          <div id="composer-shell" class="composer-shell">
+            <form id="task-form" class="task-form">
+              <label class="sr-only" for="task-input">给 BlueWhale 一个任务</label>
+              <textarea id="task-input" name="task" rows="1" required placeholder="让 BlueWhale 修复、实现或解释…"></textarea>
+              <div class="composer-toolbar">
+                <div class="context-control">
+                  <div class="workspace-field">
+                    <label class="sr-only" for="workspace-input">工作区</label>
+                    <input id="workspace-input" name="workspace" value="." autocomplete="off">
+                  </div>
+                  <button id="desktop-project" class="project-context" type="button" hidden>
+                    <span class="folder-icon" aria-hidden="true">▣</span>
+                    <span class="project-copy"><strong id="project-name">选择项目</strong><small id="project-path">未授权工作区</small></span>
+                  </button>
+                </div>
+                <div class="composer-actions">
+                  <button id="stop-run" class="send-button stop" type="button" aria-label="停止任务" hidden><span aria-hidden="true">■</span></button>
+                  <button id="submit-task" class="send-button" type="submit" aria-label="发送任务"><span aria-hidden="true">↑</span></button>
+                </div>
+              </div>
+            </form>
+            <p class="composer-hint">BlueWhale 可能会犯错，重要变更请查看工作过程。</p>
           </div>
         </section>
       </main>
-
-      <aside class="inspector panel" aria-labelledby="inspector-title">
-        <div class="panel-heading inspector-heading">
-          <div>
-            <p class="section-index">03 / PROOF</p>
-            <h2 id="inspector-title">变更与证据</h2>
-          </div>
-        </div>
-        <div class="tab-list" role="tablist" aria-label="检查面板">
-          <button class="tab active" id="evidence-tab" role="tab" aria-selected="true" aria-controls="evidence-panel" data-panel="evidence">Evidence</button>
-          <button class="tab" id="changes-tab" role="tab" aria-selected="false" aria-controls="changes-panel" data-panel="changes">Changes</button>
-        </div>
-        <section id="evidence-panel" class="inspector-panel active" role="tabpanel" aria-labelledby="evidence-tab"></section>
-        <section id="changes-panel" class="inspector-panel" role="tabpanel" aria-labelledby="changes-tab" hidden></section>
-      </aside>
-
-      <section class="activity panel" aria-labelledby="activity-title">
-        <div class="activity-heading">
-          <div>
-            <p class="section-index">04 / TRAJECTORY</p>
-            <h2 id="activity-title">活动时间线</h2>
-          </div>
-          <div class="legend" aria-label="事件类型图例">
-            <span><i class="tone model"></i>MODEL</span>
-            <span><i class="tone tool"></i>TOOL</span>
-            <span><i class="tone test"></i>TEST</span>
-            <span><i class="tone done"></i>DONE</span>
-          </div>
-        </div>
-        <ol id="activity-timeline" class="timeline" aria-live="polite"></ol>
-      </section>
     </div>
 
     <dialog id="model-settings" class="settings-dialog" aria-labelledby="model-settings-title">
       <form id="api-key-form">
         <div class="dialog-heading">
-          <div>
-            <p class="section-index">MODEL ACCESS</p>
-            <h2 id="model-settings-title">DeepSeek 设置</h2>
-          </div>
+          <div><p class="dialog-eyebrow">模型访问</p><h2 id="model-settings-title">DeepSeek 设置</h2></div>
           <button id="close-model-settings" class="icon-button" type="button" aria-label="关闭模型设置">×</button>
         </div>
-        <p class="dialog-copy">API Key 将保存到 macOS 钥匙串，BlueWhale 不会回显已保存的值。</p>
+        <p class="dialog-copy">API Key 仅保存在 macOS 钥匙串中，不会在界面中回显。</p>
         <label for="api-key-input">新的 API Key</label>
-        <input id="api-key-input" type="password" autocomplete="off" spellcheck="false">
+        <input id="api-key-input" type="password" autocomplete="off" spellcheck="false" placeholder="sk-…">
         <p id="api-key-status" class="secret-status" role="status">正在检查配置</p>
         <div class="dialog-actions">
           <button id="clear-api-key" class="button secondary" type="button">清除密钥</button>
-          <button id="save-api-key" class="button primary" type="submit"><span>保存到钥匙串</span></button>
+          <button id="save-api-key" class="button primary" type="submit">保存</button>
         </div>
       </form>
     </dialog>
 
-    <script type="module" src="/static/js/app.js"></script>
+    <script type="module" src="/static/js/app.js?v=codex-ui-2"></script>
   </body>
 </html>

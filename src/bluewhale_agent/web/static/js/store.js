@@ -3,7 +3,6 @@ export const state = {
   activeRunId: null,
   events: new Map(),
   connectionState: "idle",
-  selectedPanel: "evidence",
 };
 
 const subscribers = new Set();
@@ -53,11 +52,6 @@ export function addEvent(runId, storedEvent) {
 
 export function setConnectionState(connectionState) {
   state.connectionState = connectionState;
-  notify();
-}
-
-export function setSelectedPanel(selectedPanel) {
-  state.selectedPanel = selectedPanel;
   notify();
 }
 

@@ -39,7 +39,7 @@ async def test_bootstrap_establishes_http_only_desktop_session(tmp_path: Path) -
     assert rejected.status_code == 401
     assert "set-cookie" not in rejected.headers
     assert bootstrap.status_code == 303
-    assert bootstrap.headers["location"] == "/"
+    assert bootstrap.headers["location"].startswith("/?v=")
     cookie = bootstrap.headers["set-cookie"]
     assert "HttpOnly" in cookie
     assert "SameSite=strict" in cookie

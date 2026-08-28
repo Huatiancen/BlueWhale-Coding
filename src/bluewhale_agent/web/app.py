@@ -84,6 +84,16 @@ def create_app(
     app.state.approvals = approvals
     desktop_guard = DesktopSessionGuard(desktop_token) if desktop_token is not None else None
 
+    @app.middleware("http")
+    async def prevent_local_ui_cache(
+        request: Request,
+        call_next: RequestResponseEndpoint,
+    ) -> Response:
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     if desktop_guard is not None:
 
         @app.middleware("http")
@@ -120,7 +130,10 @@ def create_app(
                     status_code=401,
                     content={"detail": "Invalid desktop bootstrap token"},
                 )
-            response = RedirectResponse(url="/", status_code=303)
+            response = RedirectResponse(
+                url=f"/?v={desktop_guard.cache_token}",
+                status_code=303,
+            )
             response.set_cookie(
                 DESKTOP_COOKIE,
                 desktop_guard.session_token,

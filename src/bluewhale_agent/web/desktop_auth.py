@@ -16,6 +16,7 @@ class DesktopSessionGuard:
             raise ValueError("desktop token must not be empty")
         self._bootstrap_token = bootstrap_token
         self._session_token = secrets.token_urlsafe(32)
+        self._cache_token = secrets.token_urlsafe(8)
 
     def accepts_bootstrap(self, candidate: str | None) -> bool:
         return candidate is not None and hmac.compare_digest(
@@ -32,3 +33,7 @@ class DesktopSessionGuard:
     @property
     def session_token(self) -> str:
         return self._session_token
+
+    @property
+    def cache_token(self) -> str:
+        return self._cache_token
