@@ -39,6 +39,7 @@ bluewhale_agent = ["web/static/*", "web/static/js/*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--strict-markers --strict-config"
+norecursedirs = ["tests/fixtures"]
 
 [tool.ruff]
 target-version = "py312"
