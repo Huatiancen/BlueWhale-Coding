@@ -29,14 +29,21 @@ async def test_root_serves_accessible_conversation_workspace(tmp_path: Path) -> 
     assert 'id="session-list"' in html
     assert '<p class="sidebar-label">项目</p>' in html
     assert 'id="conversation-panel"' in html
-    assert 'id="home-open-project"' in html
-    assert 'id="home-recent-projects"' in html
+    assert 'id="home-title"' in html
+    assert 'id="home-subtitle"' in html
+    assert 'id="home-open-project"' not in html
+    assert 'id="home-recent-projects"' not in html
+    assert 'id="conversation-header"' in html
     assert 'id="conversation-shell"' in html
     assert 'id="composer-shell"' in html
     assert 'id="approval-dock"' in html
     assert 'id="artifact-inspector"' in html
     assert 'id="inspector-content"' in html
+    assert 'id="sidebar-resizer"' in html
+    assert 'id="inspector-resizer"' in html
+    assert html.count('role="separator"') == 2
     composer = html[html.index('id="composer-shell"') :]
+    assert composer.index('id="app-notice"') < composer.index('id="approval-dock"')
     assert composer.index('id="approval-dock"') < composer.index('id="task-form"')
     assert 'id="work-details"' not in html
     assert 'id="activity-timeline"' not in html
@@ -89,6 +96,8 @@ def test_styles_define_bluewhale_palette_and_responsive_layout() -> None:
     assert "--warning" in css
     assert "--danger" in css
     assert ".conversation-shell" in css
+    assert ".panel-resizer" in css
+    assert "--inspector-width" in css
     assert ".composer-shell" in css
     assert ".approval-dock" in css
     assert ".approval-dock[hidden]" in css
@@ -104,10 +113,20 @@ def test_styles_define_bluewhale_palette_and_responsive_layout() -> None:
     assert ".message:hover > .message-copy-button" in css
     assert ".assistant-message > .message-copy-button" in css
     assert ".user-message > .message-copy-button" in css
-    assert "max-width: 860px" in css
+    assert ".diff-line.addition" in css
+    assert ".diff-line.deletion" in css
+    assert ".diff-line.hunk" in css
+    assert ".diff-line-number" in css
+    assert "max-width: 1040px" in css
     assert "@media" in css
     assert "prefers-reduced-motion" in css
     assert "url(http" not in css
+
+    workspace_rule = css_rule(css, ".workspace-main")
+    conversation_rule = css_rule(css, ".conversation-shell")
+    assert "grid-template-rows: minmax(0, 1fr)" in workspace_rule
+    assert "min-height: 0" in conversation_rule
+    assert "overflow: hidden" in conversation_rule
 
 
 def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
@@ -121,15 +140,20 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
         "api.js",
         "app.js",
         "artifact-view.js",
+        "composer-keyboard.js",
         "conversation-turns.js",
         "desktop.js",
+        "diff-view.js",
         "event-view.js",
+        "home-prompt.js",
         "markdown.js",
         "message-copy.js",
+        "panel-resize.js",
         "project-groups.js",
         "render.js",
         "store.js",
         "stream-guard.js",
+        "stream-lifecycle.js",
     }
     assert "innerHTML" not in combined
     assert "insertAdjacentHTML" not in combined
@@ -141,8 +165,14 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert 'from "./project-groups.js"' in scripts["render.js"]
     assert 'from "./conversation-turns.js"' in scripts["render.js"]
     assert 'from "./artifact-view.js"' in scripts["app.js"]
+    assert 'from "./composer-keyboard.js"' in scripts["app.js"]
+    assert 'from "./diff-view.js"' in scripts["artifact-view.js"]
     assert "changeset-card" in scripts["render.js"]
     assert "getRunFile" in scripts["app.js"]
+    assert "homePrompt" in scripts["app.js"]
+    assert "elements.runTitle.parentElement.hidden = !run" in scripts["render.js"]
+    assert "elements.conversationHeader.hidden = !run" not in scripts["render.js"]
+    assert "recent-project-card" not in scripts["render.js"]
     assert "conversationTimeline" in scripts["render.js"]
     assert "groupRunsByProject" in scripts["render.js"]
     assert "history-project-button" in scripts["render.js"]
@@ -152,6 +182,8 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "status-dot" not in scripts["render.js"]
     assert "session-copy" not in scripts["render.js"]
     assert "createMessageCopyButton(entry.content" in scripts["render.js"]
+    assert '"撤销"' in scripts["render.js"]
+    assert '"审核"' not in scripts["render.js"]
     assert "createElement" in scripts["markdown.js"]
     assert "fetch(" in scripts["api.js"]
     assert "new EventSource" in scripts["api.js"]
@@ -171,10 +203,13 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "/continue`" in scripts["api.js"]
     assert "continueRun" in scripts["app.js"]
     assert "selectedRun" in scripts["app.js"]
+    assert "if (desktopBridge && selectedRun?.continuable)" in scripts["app.js"]
+    assert "desktopBridge && !workspaceGrantId && selectedRun?.continuable" not in scripts["app.js"]
     assert "startNewTask" in scripts["app.js"]
     assert "selectRun(null)" in scripts["app.js"]
     assert "ensureRunWorkspace" in scripts["app.js"]
     assert 'from "./stream-guard.js"' in scripts["app.js"]
+    assert 'from "./stream-lifecycle.js"' in scripts["app.js"]
     assert "isCurrentStream" in scripts["app.js"]
     assert "if (state.activeRunId) connectToRun" not in scripts["app.js"]
     assert "permissionMode" in scripts["app.js"]
@@ -187,7 +222,8 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert '"不可用"' in scripts["render.js"]
     assert "!run.historical && ACTIVE_STATUSES.has(run.status)" in scripts["render.js"]
     assert "app_interrupted" in scripts["render.js"]
-    assert "run?.historical && connectionState === \"reconnecting\"" in scripts["app.js"]
+    assert 'if (connectionState === "reconnecting")' in scripts["app.js"]
+    assert "if (run?.historical)" in scripts["app.js"]
     assert "!run.historical && ACTIVE_RUN_STATUSES.has(run.status)" in scripts["app.js"]
     assert "shortId(run.id)" not in scripts["render.js"]
     assert "activity-timeline" not in scripts["app.js"]
@@ -219,3 +255,8 @@ def app_client(workspace: Path) -> httpx.AsyncClient:
 
 def static_root() -> Path:
     return Path(__file__).resolve().parents[2] / "src" / "bluewhale_agent" / "web" / "static"
+
+
+def css_rule(css: str, selector: str) -> str:
+    start = css.index(f"{selector} {{")
+    return css[start : css.index("}", start) + 1]

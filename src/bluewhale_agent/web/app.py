@@ -60,7 +60,7 @@ def create_app(
     workspace_resolver: WorkspaceResolver | None = None,
     provider_factory: ProviderFactory | None = None,
     settings: Settings | None = None,
-    approval_timeout_seconds: float = 60.0,
+    approval_timeout_seconds: float | None = None,
     desktop_token: str | None = None,
     history_root: Path | None = None,
 ) -> FastAPI:

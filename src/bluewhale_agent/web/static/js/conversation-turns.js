@@ -41,6 +41,7 @@ export function conversationTimeline(run, events) {
       hasPersistedChanges = true;
       timeline.push({ kind: "changeset", payload, eventIndex });
     } else if (kind === "run_finished") {
+      const hasChanges = hasPersistedChanges || legacyFiles.size > 0;
       if (!hasPersistedChanges && legacyFiles.size) {
         timeline.push({
           kind: "changeset",
@@ -53,7 +54,9 @@ export function conversationTimeline(run, events) {
           eventIndex,
         });
       }
-      timeline.push({ kind: "result", payload, eventIndex });
+      if (payload.status !== "completed" || !hasChanges) {
+        timeline.push({ kind: "result", payload, eventIndex });
+      }
     }
     if (kind === "observation_received" && payload.observation?.status === "success") {
       const path = mutationActions.get(payload.observation?.action_id);

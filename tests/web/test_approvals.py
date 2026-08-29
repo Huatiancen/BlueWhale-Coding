@@ -27,6 +27,23 @@ def overwrite_action() -> Action:
 
 
 @pytest.mark.asyncio
+async def test_default_broker_waits_for_an_explicit_decision() -> None:
+    broker = ApprovalBroker()
+    assert broker.timeout_seconds is None
+    waiting = asyncio.create_task(
+        broker.request("run-one", overwrite_action(), "Needs your decision")
+    )
+    approval = await wait_for_pending(broker, "run-one")
+
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(asyncio.shield(waiting), timeout=0.02)
+
+    assert approval.status is ApprovalStatus.PENDING
+    broker.resolve("run-one", approval.id, ApprovalDecision.DENY)
+    assert await waiting is False
+
+
+@pytest.mark.asyncio
 async def test_broker_resolves_an_approval_exactly_once() -> None:
     broker = ApprovalBroker(timeout_seconds=1)
     waiting = asyncio.create_task(

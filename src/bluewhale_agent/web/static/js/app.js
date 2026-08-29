@@ -18,8 +18,12 @@ import {
   selectDesktopWorkspace,
 } from "./desktop.js";
 import { renderArtifactInspector } from "./artifact-view.js";
+import { shouldSubmitComposer } from "./composer-keyboard.js";
+import { homePrompt } from "./home-prompt.js";
+import { setupPanelResizer } from "./panel-resize.js";
 import { renderWorkspace } from "./render.js";
 import { createStreamGuard } from "./stream-guard.js";
+import { shouldCloseRunStream } from "./stream-lifecycle.js";
 import {
   addEvent,
   selectRun,
@@ -51,8 +55,8 @@ const elements = {
   desktopControls: document.querySelector("#desktop-controls"),
   desktopProject: document.querySelector("#desktop-project"),
   openProject: document.querySelector("#open-project"),
-  homeOpenProject: document.querySelector("#home-open-project"),
-  homeRecentProjects: document.querySelector("#home-recent-projects"),
+  homeTitle: document.querySelector("#home-title"),
+  homeSubtitle: document.querySelector("#home-subtitle"),
   projectName: document.querySelector("#project-name"),
   projectPath: document.querySelector("#project-path"),
   openModelSettings: document.querySelector("#open-model-settings"),
@@ -76,6 +80,9 @@ const elements = {
   inspectorToolbar: document.querySelector("#inspector-toolbar"),
   inspectorContent: document.querySelector("#inspector-content"),
   closeInspector: document.querySelector("#close-inspector"),
+  sidebar: document.querySelector(".sidebar"),
+  sidebarResizer: document.querySelector("#sidebar-resizer"),
+  inspectorResizer: document.querySelector("#inspector-resizer"),
   permissionTrigger: document.querySelector("#permission-trigger"),
   permissionLabel: document.querySelector("#permission-label"),
   permissionMenu: document.querySelector("#permission-menu"),
@@ -89,6 +96,34 @@ let workspacePath = null;
 let busy = false;
 let selectedArtifact = null;
 const streamGuard = createStreamGuard();
+let sidebarSize = 248;
+let inspectorSize = Math.round(window.innerWidth * 0.46);
+
+setupPanelResizer({
+  handle: elements.sidebarResizer,
+  getSize: () => sidebarSize,
+  setSize: (size) => {
+    sidebarSize = size;
+    document.documentElement.style.setProperty("--sidebar-width", `${size}px`);
+  },
+  sizeFromPointer: (event) => event.clientX,
+  min: 190,
+  max: 420,
+  growKey: "ArrowRight",
+});
+
+setupPanelResizer({
+  handle: elements.inspectorResizer,
+  getSize: () => inspectorSize,
+  setSize: (size) => {
+    inspectorSize = size;
+    document.documentElement.style.setProperty("--inspector-width", `${size}px`);
+  },
+  sizeFromPointer: (event) => window.innerWidth - event.clientX,
+  min: 320,
+  max: () => Math.max(320, window.innerWidth - sidebarSize - 420),
+  growKey: "ArrowLeft",
+});
 
 subscribe((snapshot) => {
   renderWorkspace(elements, snapshot, {
@@ -107,7 +142,6 @@ elements.newTask.addEventListener("click", startNewTask);
 elements.stopButton.addEventListener("click", stopActiveRun);
 elements.refreshButton.addEventListener("click", refreshRuns);
 elements.openProject.addEventListener("click", openDesktopProject);
-elements.homeOpenProject.addEventListener("click", openDesktopProject);
 elements.desktopProject.addEventListener("click", openDesktopProject);
 elements.openModelSettings.addEventListener("click", showModelSettings);
 elements.closeModelSettings.addEventListener("click", () => elements.modelSettings.close());
@@ -143,7 +177,7 @@ async function submitTask(event) {
   const workspace = elements.workspaceInput.value.trim() || ".";
   const selectedRun = state.runs.find((item) => item.id === state.activeRunId);
   if (!task) return;
-  if (desktopBridge && !workspaceGrantId && selectedRun?.continuable) {
+  if (desktopBridge && selectedRun?.continuable) {
     try {
       await ensureRunWorkspace(selectedRun);
     } catch (error) {
@@ -264,11 +298,29 @@ function connectToRun(runId) {
   setConnectionState("connecting");
   const run = state.runs.find((item) => item.id === runId);
   closeEventStream = connectRunEvents(runId, {
-    onState(connectionState, detail) {
+    async onState(connectionState, detail) {
       if (!isCurrentStream()) return;
-      if (run?.historical && connectionState === "reconnecting") {
-        closeStream();
-        setConnectionState("idle");
+      if (connectionState === "reconnecting") {
+        if (run?.historical) {
+          closeStream();
+          setConnectionState("idle");
+          return;
+        }
+        try {
+          const refreshed = await getRun(runId);
+          if (!isCurrentStream()) return;
+          upsertRun(refreshed);
+          if (shouldCloseRunStream(run, refreshed)) {
+            closeStream();
+            setConnectionState("idle");
+            return;
+          }
+        } catch (error) {
+          if (!isCurrentStream()) return;
+          showNotice(error.message, true);
+        }
+      }
+      if (!isCurrentStream()) {
         return;
       }
       setConnectionState(connectionState);
@@ -278,12 +330,14 @@ function connectToRun(runId) {
       if (!isCurrentStream()) return;
       addEvent(runId, storedEvent);
       if (storedEvent.event.kind === "run_finished") {
-        closeStream();
-        setConnectionState("idle");
+        if (run?.historical) return;
         try {
-          upsertRun(await getRun(runId));
+          const refreshed = await getRun(runId);
+          if (!isCurrentStream()) return;
+          upsertRun(refreshed);
           updateControls();
         } catch (error) {
+          if (!isCurrentStream()) return;
           showNotice(error.message, true);
         }
       }
@@ -339,6 +393,13 @@ function applyWorkspace(workspace) {
   workspacePath = workspace.display_path;
   elements.projectName.textContent = workspace.display_name;
   elements.projectPath.textContent = workspace.display_path;
+  updateHomePrompt(workspace.display_name);
+}
+
+function updateHomePrompt(workspaceName = null) {
+  const prompt = homePrompt(workspaceName);
+  elements.homeTitle.textContent = prompt.title;
+  elements.homeSubtitle.textContent = prompt.subtitle;
 }
 
 async function showModelSettings() {
@@ -394,7 +455,6 @@ function updateControls() {
     desktopBridge && !workspaceGrantId && !selectedRun?.continuable,
   );
   elements.openProject.disabled = busy || active;
-  elements.homeOpenProject.disabled = busy || active;
   elements.newTask.disabled = busy || active;
   elements.desktopProject.disabled = busy || active;
   elements.submitButton.disabled =
@@ -459,7 +519,7 @@ function resizeComposer() {
 }
 
 function submitWithShortcut(event) {
-  if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
+  if (!shouldSubmitComposer(event)) return;
   event.preventDefault();
   elements.taskForm.requestSubmit();
 }

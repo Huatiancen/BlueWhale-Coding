@@ -1,3 +1,4 @@
+import { renderUnifiedDiff } from "./diff-view.js";
 import { renderMarkdown } from "./markdown.js";
 
 export function renderArtifactInspector(elements, artifact, { onClose }) {
@@ -31,11 +32,15 @@ export function renderArtifactInspector(elements, artifact, { onClose }) {
       elements.inspectorContent.append(preview);
       return;
     }
+    if (active === "差异") {
+      elements.inspectorContent.append(
+        renderUnifiedDiff(artifact.diff || "此历史记录没有保存差异。"),
+      );
+      return;
+    }
     const pre = document.createElement("pre");
-    pre.className = active === "差异" ? "artifact-code diff" : "artifact-code";
-    pre.textContent = active === "差异"
-      ? artifact.diff || "此历史记录没有保存差异。"
-      : artifact.currentContent ?? artifact.after ?? "文件内容不可用。";
+    pre.className = "artifact-code";
+    pre.textContent = artifact.currentContent ?? artifact.after ?? "文件内容不可用。";
     elements.inspectorContent.append(pre);
   }
 

@@ -19,7 +19,6 @@ export function renderWorkspace(elements, snapshot, callbacks) {
     callbacks.onToggleProject,
   );
   renderRunHeader(elements, run);
-  renderHome(elements, snapshot.runs, callbacks.onSelectRun);
   renderConversation(
     elements,
     run,
@@ -28,25 +27,6 @@ export function renderWorkspace(elements, snapshot, callbacks) {
     callbacks.onSelectArtifact,
   );
   renderApprovalDock(elements, events, run, callbacks.onResolveApproval);
-}
-
-function renderHome(elements, runs, onSelectRun) {
-  if (!elements.homeRecentProjects) return;
-  elements.homeRecentProjects.replaceChildren();
-  for (const project of groupRunsByProject(runs).slice(0, 4)) {
-    const latest = project.runs.at(-1);
-    const button = element("button", "recent-project-card");
-    button.type = "button";
-    button.append(
-      folderIcon(),
-      element("span", "recent-project-name", project.name),
-      element("small", "", `${project.runs.length} 个任务`),
-    );
-    button.addEventListener("click", () => onSelectRun(latest.id));
-    elements.homeRecentProjects.append(button);
-  }
-  const section = elements.homeRecentProjects.closest(".recent-projects");
-  if (section) section.hidden = runs.length === 0;
 }
 
 function renderConnection(elements, connectionState) {
@@ -129,6 +109,7 @@ function folderIcon() {
 }
 
 function renderRunHeader(elements, run) {
+  elements.runTitle.parentElement.hidden = !run;
   elements.runTitle.textContent = run?.task || "新任务";
   if (!run) {
     elements.runStatus.hidden = true;
@@ -188,18 +169,31 @@ function changeSetCard(payload, onSelectArtifact) {
   const files = payload.files || [];
   const card = element("section", "changeset-card");
   const heading = element("div", "changeset-heading");
-  heading.append(
-    element("span", "changeset-icon", "▣"),
-    element("strong", "", `${payload.legacy ? "涉及" : "已编辑"} ${files.length} 个文件`),
-  );
+  const icon = element("span", "changeset-icon", "▣");
+  icon.setAttribute("aria-hidden", "true");
+  const summary = element("div", "changeset-summary");
+  const totals = element("span", "changeset-totals");
   if (!payload.legacy) {
-    heading.append(
+    totals.append(
       element("span", "changeset-total additions", `+${payload.additions || 0}`),
       element("span", "changeset-total deletions", `-${payload.deletions || 0}`),
     );
   } else {
-    heading.append(element("span", "legacy-change-note", "历史记录仅可查看当前文件"));
+    totals.append(element("span", "legacy-change-note", "历史记录仅可查看当前文件"));
   }
+  summary.append(
+    element("strong", "", `${payload.legacy ? "涉及" : "已编辑"} ${files.length} 个文件`),
+    totals,
+  );
+  const undo = element("button", "changeset-undo", "撤销");
+  undo.type = "button";
+  undo.disabled = true;
+  undo.title = "撤销功能即将支持";
+  heading.append(
+    icon,
+    summary,
+    undo,
+  );
   card.append(heading);
   const list = element("div", "changeset-files");
   for (const file of files) {

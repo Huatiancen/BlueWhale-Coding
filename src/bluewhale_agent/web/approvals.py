@@ -63,8 +63,8 @@ class _Entry:
 class ApprovalBroker:
     """Own pending approval futures without granting implicit permission."""
 
-    def __init__(self, *, timeout_seconds: float = 60.0) -> None:
-        if timeout_seconds <= 0:
+    def __init__(self, *, timeout_seconds: float | None = None) -> None:
+        if timeout_seconds is not None and timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         self.timeout_seconds = timeout_seconds
         self._entries: dict[str, _Entry] = {}
@@ -77,7 +77,7 @@ class ApprovalBroker:
         *,
         on_pending: Callable[[ApprovalRecord], None] | None = None,
     ) -> bool:
-        """Wait for one explicit decision; timeout always behaves as denial."""
+        """Wait for one explicit decision, with an optional bounded timeout."""
 
         approval_id = uuid4().hex
         record = ApprovalRecord(

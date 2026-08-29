@@ -66,6 +66,7 @@ test("places a persisted changeset in the turn that produced it", () => {
 
   assert.equal(timeline[1].kind, "changeset");
   assert.equal(timeline[1].payload.files[0].path, "src/app.py");
+  assert.equal(timeline.some((entry) => entry.kind === "result"), false);
 });
 
 test("builds a source-only fallback card for older mutation history", () => {
