@@ -21,6 +21,7 @@ import { renderArtifactInspector } from "./artifact-view.js";
 import { shouldSubmitComposer } from "./composer-keyboard.js";
 import { homePrompt } from "./home-prompt.js";
 import { setupPanelResizer } from "./panel-resize.js";
+import { workspaceSelectionStartsNewTask } from "./project-groups.js";
 import { renderWorkspace } from "./render.js";
 import { createStreamGuard } from "./stream-guard.js";
 import { shouldCloseRunStream } from "./stream-lifecycle.js";
@@ -387,7 +388,10 @@ async function openDesktopProject() {
   try {
     const result = await selectDesktopWorkspace(desktopBridge);
     if (!result.cancelled) {
+      const selectedRun = state.runs.find((run) => run.id === state.activeRunId);
+      const startsNewTask = workspaceSelectionStartsNewTask(selectedRun, result);
       applyWorkspace(result);
+      if (startsNewTask) startNewTask();
       await refreshRuns();
       showNotice(`已授权项目：${result.display_name}`);
     }

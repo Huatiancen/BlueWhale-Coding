@@ -34,6 +34,13 @@ export function projectKey(run) {
     : UNKNOWN_PROJECT;
 }
 
+export function workspaceSelectionStartsNewTask(activeRun, selection) {
+  if (!activeRun) return false;
+  const selectedPath =
+    typeof selection?.display_path === "string" ? selection.display_path.trim() : "";
+  return Boolean(selectedPath && projectKey(activeRun) !== selectedPath);
+}
+
 function projectName(run, key) {
   if (key === UNKNOWN_PROJECT) return "未知项目";
   if (typeof run?.workspace_name === "string" && run.workspace_name.trim()) {

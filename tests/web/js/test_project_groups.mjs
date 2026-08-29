@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { groupRunsByProject } from "../../../src/bluewhale_agent/web/static/js/project-groups.js";
+import {
+  groupRunsByProject,
+  workspaceSelectionStartsNewTask,
+} from "../../../src/bluewhale_agent/web/static/js/project-groups.js";
 
 function run(id, workspace, workspaceName, createdAt, workspaceAvailable = true) {
   return {
@@ -55,4 +58,21 @@ test("places malformed records in a stable unknown project without mutating inpu
   assert.equal(groups[0].key, "__unknown__");
   assert.equal(groups[0].name, "未知项目");
   assert.equal(JSON.stringify(runs), before);
+});
+
+test("starts a new task when an open conversation switches projects", () => {
+  const activeRun = run("active", "/Users/me/old", "old", "2026-08-29T01:00:00Z");
+
+  assert.equal(
+    workspaceSelectionStartsNewTask(activeRun, { display_path: "/Users/me/new" }),
+    true,
+  );
+  assert.equal(
+    workspaceSelectionStartsNewTask(activeRun, { display_path: "/Users/me/old" }),
+    false,
+  );
+  assert.equal(
+    workspaceSelectionStartsNewTask(null, { display_path: "/Users/me/new" }),
+    false,
+  );
 });

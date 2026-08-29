@@ -169,6 +169,8 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "renderMarkdown" in scripts["render.js"]
     assert 'from "./message-copy.js"' in scripts["render.js"]
     assert 'from "./project-groups.js"' in scripts["render.js"]
+    assert "workspaceSelectionStartsNewTask" in scripts["app.js"]
+    assert "workspaceSelectionStartsNewTask(selectedRun, result)" in scripts["app.js"]
     assert 'from "./conversation-turns.js"' in scripts["render.js"]
     assert 'from "./artifact-view.js"' in scripts["app.js"]
     assert 'from "./composer-keyboard.js"' in scripts["app.js"]
@@ -241,7 +243,11 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "shortId(run.id)" not in scripts["render.js"]
     assert "activity-timeline" not in scripts["app.js"]
     assert 'elements.taskInput.value = "";\n    resizeComposer();' in scripts["app.js"]
-    assert "applyWorkspace(result);\n      await refreshRuns();" in scripts["app.js"]
+    assert (
+        "applyWorkspace(result);\n"
+        "      if (startsNewTask) startNewTask();\n"
+        "      await refreshRuns();"
+    ) in scripts["app.js"]
     assert "execCommand" not in combined
 
 
