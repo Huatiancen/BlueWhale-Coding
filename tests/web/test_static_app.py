@@ -118,6 +118,21 @@ def test_styles_define_bluewhale_palette_and_responsive_layout() -> None:
     assert ".user-message > .message-copy-button" in css
     assert ".assistant-avatar" not in css
     assert ".model-process-step" in css
+    message_rule = css_rule(css, ".message")
+    assert "-webkit-user-select: text" in message_rule
+    assert "user-select: text" in message_rule
+    task_input_rule = css_rule(css, "#task-input")
+    assert "-webkit-user-select: text" in task_input_rule
+    assert "user-select: text" in task_input_rule
+    assert ".markdown-table-wrap" in css
+    assert ".markdown-body table" in css
+    work_step_details = css_rule(css, ".work-step details")
+    assert "display: contents" not in work_step_details
+    assert "grid-column: 1 / -1" in work_step_details
+    assert "min-width: 0" in work_step_details
+    step_body = css_rule(css, ".step-body")
+    assert "margin-left: 14px" in step_body
+    assert "min-width: 0" in step_body
     assert ".diff-line.addition" in css
     assert ".diff-line.deletion" in css
     assert ".diff-line.hunk" in css

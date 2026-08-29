@@ -47,6 +47,40 @@ export function renderMarkdown(source, documentRef = document) {
       continue;
     }
 
+    const table = parseTable(lines, index);
+    if (table) {
+      const wrapper = documentRef.createElement("div");
+      wrapper.className = "markdown-table-wrap";
+      const tableNode = documentRef.createElement("table");
+      const head = documentRef.createElement("thead");
+      const headRow = documentRef.createElement("tr");
+      table.headers.forEach((content, column) => {
+        const cell = documentRef.createElement("th");
+        cell.className = `table-align-${table.alignments[column]}`;
+        renderInline(cell, content, documentRef);
+        headRow.append(cell);
+      });
+      head.append(headRow);
+      tableNode.append(head);
+
+      const body = documentRef.createElement("tbody");
+      for (const row of table.rows) {
+        const rowNode = documentRef.createElement("tr");
+        table.headers.forEach((_header, column) => {
+          const cell = documentRef.createElement("td");
+          cell.className = `table-align-${table.alignments[column]}`;
+          renderInline(cell, row[column] || "", documentRef);
+          rowNode.append(cell);
+        });
+        body.append(rowNode);
+      }
+      tableNode.append(body);
+      wrapper.append(tableNode);
+      root.append(wrapper);
+      index = table.nextIndex;
+      continue;
+    }
+
     if (/^\s*>\s?/.test(line)) {
       const quoteLines = [];
       while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
@@ -85,7 +119,11 @@ export function renderMarkdown(source, documentRef = document) {
 
     const paragraphLines = [line.trim()];
     index += 1;
-    while (index < lines.length && lines[index].trim() && !startsBlock(lines[index])) {
+    while (
+      index < lines.length &&
+      lines[index].trim() &&
+      !startsBlock(lines[index], lines[index + 1])
+    ) {
       paragraphLines.push(lines[index].trim());
       index += 1;
     }
@@ -108,14 +146,65 @@ export function isSafeLink(value) {
   }
 }
 
-function startsBlock(line) {
+function startsBlock(line, nextLine) {
   return (
     /^\s*```/.test(line) ||
     /^(?:#{1,6})\s+/.test(line) ||
     /^\s*>\s?/.test(line) ||
     /^\s*(?:[-+*]|\d+\.)\s+/.test(line) ||
-    /^\s*(?:---+|___+|\*\*\*+)\s*$/.test(line)
+    /^\s*(?:---+|___+|\*\*\*+)\s*$/.test(line) ||
+    Boolean(parseTable([line, nextLine || ""], 0))
   );
+}
+
+function parseTable(lines, index) {
+  if (index + 1 >= lines.length) return null;
+  const headers = splitTableRow(lines[index]);
+  const delimiters = splitTableRow(lines[index + 1]);
+  if (!headers || !delimiters || headers.length !== delimiters.length) return null;
+  if (!delimiters.every((cell) => /^:?-{3,}:?$/.test(cell))) return null;
+
+  const alignments = delimiters.map((cell) => {
+    if (cell.startsWith(":") && cell.endsWith(":")) return "center";
+    if (cell.endsWith(":")) return "right";
+    return "left";
+  });
+  const rows = [];
+  let nextIndex = index + 2;
+  while (nextIndex < lines.length && lines[nextIndex].trim()) {
+    const row = splitTableRow(lines[nextIndex]);
+    if (!row) break;
+    rows.push(row.slice(0, headers.length));
+    nextIndex += 1;
+  }
+  return { headers, alignments, rows, nextIndex };
+}
+
+function splitTableRow(line) {
+  const source = String(line || "").trim();
+  if (!source.includes("|")) return null;
+  const cells = [];
+  let cell = "";
+  let inCode = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === "\\" && source[index + 1] === "|") {
+      cell += "|";
+      index += 1;
+    } else if (character === "`") {
+      inCode = !inCode;
+      cell += character;
+    } else if (character === "|" && !inCode) {
+      cells.push(cell.trim());
+      cell = "";
+    } else {
+      cell += character;
+    }
+  }
+  cells.push(cell.trim());
+  if (source.startsWith("|")) cells.shift();
+  if (source.endsWith("|")) cells.pop();
+  return cells.length >= 2 ? cells : null;
 }
 
 function renderInline(parent, source, documentRef) {

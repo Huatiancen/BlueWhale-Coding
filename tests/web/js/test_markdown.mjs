@@ -66,6 +66,30 @@ test("keeps raw HTML as text and blocks unsafe links", () => {
   assert.equal(anchors[0].attributes.rel, "noreferrer noopener");
 });
 
+test("renders Markdown tables with inline formatting and column alignment", () => {
+  const rendered = renderMarkdown(
+    "| 测试 | 结果 | 文件 |\n| :--- | :---: | ---: |\n| `CliTests` | **ok** | cli.py |\n| StoreTests | FAIL | store.py |",
+    documentRef,
+  );
+  const tables = collect(rendered, "table");
+  const headers = collect(rendered, "th");
+  const cells = collect(rendered, "td");
+
+  assert.equal(tables.length, 1);
+  assert.equal(headers.length, 3);
+  assert.equal(cells.length, 6);
+  assert.deepEqual(headers.map((cell) => cell.className), [
+    "table-align-left",
+    "table-align-center",
+    "table-align-right",
+  ]);
+  assert.deepEqual(tags(tables[0]), [
+    "table", "thead", "tr", "th", "th", "th",
+    "tbody", "tr", "td", "code", "td", "strong", "td",
+    "tr", "td", "td", "td",
+  ]);
+});
+
 test("accepts only safe link schemes and relative paths", () => {
   assert.equal(isSafeLink("https://example.com"), true);
   assert.equal(isSafeLink("mailto:hello@example.com"), true);
