@@ -151,14 +151,8 @@ function renderConversation(elements, run, events, onCopyError, onSelectArtifact
         createMessageCopyButton(entry.content, { onError: onCopyError }),
       );
       elements.conversation.append(message);
-    } else if (entry.kind === "error") {
-      elements.conversation.append(errorMessage(entry.observation));
     } else if (entry.kind === "changeset") {
       elements.conversation.append(changeSetCard(entry.payload, onSelectArtifact));
-    } else if (entry.kind === "result") {
-      elements.conversation.append(
-        resultStrip(entry.payload, entry.events || []),
-      );
     }
   }
   const scroller = elements.conversation.closest(".conversation-scroll");
@@ -286,35 +280,24 @@ function approvalButton(label, variant, decision) {
   return button;
 }
 
-function errorMessage(observation) {
-  const message = element("article", "message system-message error");
-  message.append(
-    element("strong", "", "这一步没有完成"),
-    element("p", "", observation.summary || "工具执行失败。"),
-  );
-  return message;
-}
-
-function resultStrip(payload, events) {
-  const changedFiles = changedFileCount(events);
-  const strip = element("article", "result-strip error");
-  strip.append(
-    element("span", "result-icon", "!"),
-    element("strong", "", stopReasonLabel(payload.stop_reason)),
-  );
-  const facts = [];
-  if (payload.verified === true) facts.push("验证已通过");
-  if (payload.verified === false) facts.push("验证未通过");
-  if (changedFiles) facts.push(`修改 ${changedFiles} 个文件`);
-  if (facts.length) strip.append(element("span", "result-facts", facts.join(" · ")));
-  return strip;
-}
-
 function createWorkDetails(work) {
   const events = work.events || [];
   const actions = events.filter((stored) => stored.event.kind === "action_requested");
+  const actionIds = new Set(
+    actions.map((stored) => stored.event.payload.action?.id).filter(Boolean),
+  );
   const verification = events.findLast(
     (stored) => stored.event.kind === "verification_finished",
+  );
+  const unmatchedFailures = events.filter((stored) => {
+    if (stored.event.kind !== "observation_received") return false;
+    const observation = stored.event.payload.observation;
+    return observation?.status !== "success" && !actionIds.has(observation?.action_id);
+  });
+  const failedRun = events.findLast(
+    (stored) =>
+      stored.event.kind === "run_finished" &&
+      stored.event.payload.status !== "completed",
   );
   const section = element("section", "turn-work work-details");
   section.setAttribute("aria-label", "工作过程");
@@ -330,8 +313,10 @@ function createWorkDetails(work) {
   for (const stored of actions) {
     list.append(workStep(stored, observations.get(stored.event.payload.action?.id)));
   }
+  for (const stored of unmatchedFailures) list.append(observationStep(stored));
   if (verification) list.append(verificationStep(verification));
-  if (!actions.length && !verification) {
+  if (failedRun) list.append(runOutcomeStep(failedRun));
+  if (!actions.length && !unmatchedFailures.length && !verification && !failedRun) {
     list.append(element("li", "work-empty", "本轮未调用本地工具"));
   }
   wrapper.append(list);
@@ -375,6 +360,38 @@ function workStep(stored, observationStored) {
   return item;
 }
 
+function observationStep(stored) {
+  const observation = stored.event.payload.observation || {};
+  const item = element("li", `work-step ${observation.status || "error"}`);
+  const details = document.createElement("details");
+  const summary = element("summary", "step-summary");
+  summary.append(
+    element("span", "step-dot"),
+    element("span", "step-title", observation.summary || "工具执行失败"),
+    element("span", "step-state", observationStatus(observation.status)),
+  );
+  const body = element("div", "step-body");
+  if (observation.content) body.append(element("pre", "", observation.content));
+  if (observation.metadata && Object.keys(observation.metadata).length) {
+    body.append(element("pre", "", safeJson(observation.metadata)));
+  }
+  if (body.childElementCount) details.append(summary, body);
+  else details.append(summary);
+  item.append(details);
+  return item;
+}
+
+function runOutcomeStep(stored) {
+  const payload = stored.event.payload || {};
+  const item = element("li", "work-step error");
+  item.append(
+    element("span", "step-dot"),
+    element("span", "step-title", stopReasonLabel(payload.stop_reason)),
+    element("span", "step-state", payload.status === "stopped" ? "已停止" : "未完成"),
+  );
+  return item;
+}
+
 function verificationStep(stored) {
   const outcome = stored.event.payload.outcome || {};
   const item = element("li", `work-step ${outcome.passed ? "success" : "error"}`);
@@ -403,19 +420,6 @@ function humanToolLabel(toolName) {
     run_command: "运行命令",
   };
   return labels[toolName] || "执行操作";
-}
-
-function changedFileCount(events) {
-  const snapshot = events.findLast(
-    (stored) => stored.event.kind === "changeset_recorded",
-  );
-  if (snapshot) return snapshot.event.payload.files?.length || 0;
-  return new Set(
-    events
-      .filter((stored) => stored.event.kind === "observation_received")
-      .map((stored) => stored.event.payload.observation?.metadata?.path)
-      .filter(Boolean),
-  ).size;
 }
 
 function statusLabel(status) {

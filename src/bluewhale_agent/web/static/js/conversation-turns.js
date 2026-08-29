@@ -73,11 +73,6 @@ function turnTimeline(turn) {
       payload.content
     ) {
       timeline.push({ kind: "assistant", content: payload.content, eventIndex });
-    } else if (
-      kind === "observation_received" &&
-      payload.observation?.status !== "success"
-    ) {
-      timeline.push({ kind: "error", observation: payload.observation, eventIndex });
     } else if (kind === "changeset_recorded" && Array.isArray(payload.files)) {
       hasPersistedChanges = true;
       timeline.push({ kind: "changeset", payload, eventIndex });
@@ -93,9 +88,6 @@ function turnTimeline(turn) {
           },
           eventIndex,
         });
-      }
-      if (payload.status !== "completed") {
-        timeline.push({ kind: "result", payload, events: storedEvents, eventIndex });
       }
     }
     if (kind === "observation_received" && payload.observation?.status === "success") {

@@ -885,41 +885,6 @@ summary:focus-visible {
   border-top: 1px solid var(--line);
 }
 
-.system-message,
-.result-strip {
-  margin-left: 39px;
-  padding: 11px 13px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  color: var(--ink-300);
-  background: rgba(28, 44, 48, 0.025);
-  font-size: 0.78rem;
-}
-
-.system-message.error {
-  border-color: rgba(233, 130, 130, 0.24);
-}
-
-.system-message p {
-  margin-top: 5px;
-  color: var(--ink-500);
-}
-
-.result-strip {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-.result-strip.error .result-icon {
-  color: var(--danger);
-}
-
-.result-facts {
-  margin-left: auto;
-  color: var(--ink-500);
-}
-
 .approval-card {
   position: relative;
   overflow: hidden;

@@ -27,7 +27,7 @@ test("builds interleaved user and assistant messages from every run", () => {
   );
 });
 
-test("keeps failed turn results visible while hiding successful completion strips", () => {
+test("keeps failed turn details inside work instead of the conversation body", () => {
   const timeline = conversationTimeline(
     { task: "运行任务" },
     [
@@ -36,9 +36,13 @@ test("keeps failed turn results visible while hiding successful completion strip
     ],
   );
 
-  const result = timeline.find((entry) => entry.kind === "result");
-  assert.equal(result.payload.status, "failed");
-  assert.equal(result.payload.stop_reason, "tool_error");
+  assert.equal(timeline.some((entry) => entry.kind === "result"), false);
+  const work = timeline.find((entry) => entry.kind === "work");
+  const finish = work.events.find(
+    (storedEvent) => storedEvent.event.kind === "run_finished",
+  );
+  assert.equal(finish.event.payload.status, "failed");
+  assert.equal(finish.event.payload.stop_reason, "tool_error");
 });
 
 test("falls back to the run title for imported history without run_started", () => {
@@ -53,7 +57,7 @@ test("falls back to the run title for imported history without run_started", () 
   assert.equal(timeline[2].kind, "assistant");
 });
 
-test("keeps failed observations at their original timeline position", () => {
+test("keeps failed observations inside work instead of the conversation body", () => {
   const timeline = conversationTimeline(
     { task: "运行检查" },
     [
@@ -64,8 +68,12 @@ test("keeps failed observations at their original timeline position", () => {
     ],
   );
 
-  assert.equal(timeline[2].kind, "error");
-  assert.equal(timeline[2].observation.summary, "命令失败");
+  assert.equal(timeline.some((entry) => entry.kind === "error"), false);
+  const work = timeline.find((entry) => entry.kind === "work");
+  const observation = work.events.find(
+    (storedEvent) => storedEvent.event.kind === "observation_received",
+  );
+  assert.equal(observation.event.payload.observation.summary, "命令失败");
 });
 
 test("places a persisted changeset in the turn that produced it", () => {
