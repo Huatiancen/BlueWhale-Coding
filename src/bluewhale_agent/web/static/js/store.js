@@ -1,9 +1,12 @@
+import { projectKey } from "./project-groups.js";
+
 export const state = {
   runs: [],
   activeRunId: null,
   events: new Map(),
   connectionState: "idle",
   permissionMode: "balanced",
+  collapsedProjects: new Set(),
 };
 
 const subscribers = new Set();
@@ -15,9 +18,13 @@ export function subscribe(listener) {
 
 export function setRuns(runs) {
   state.runs = [...runs];
-  if (!state.activeRunId && state.runs.length) {
-    state.activeRunId = state.runs[state.runs.length - 1].id;
+  if (!state.runs.some((run) => run.id === state.activeRunId)) {
+    state.activeRunId = state.runs.at(-1)?.id || null;
   }
+  const projectKeys = new Set(state.runs.map(projectKey));
+  state.collapsedProjects = new Set(
+    [...state.collapsedProjects].filter((key) => projectKeys.has(key)),
+  );
   notify();
 }
 
@@ -33,6 +40,18 @@ export function upsertRun(run) {
 
 export function selectRun(runId) {
   state.activeRunId = runId;
+  const selected = state.runs.find((run) => run.id === runId);
+  if (selected) state.collapsedProjects.delete(projectKey(selected));
+  notify();
+}
+
+export function toggleProjectCollapsed(key) {
+  const selected = state.runs.find((run) => run.id === state.activeRunId);
+  if (selected && projectKey(selected) === key) return;
+  const next = new Set(state.collapsedProjects);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  state.collapsedProjects = next;
   notify();
 }
 

@@ -25,6 +25,7 @@ async def test_root_serves_accessible_conversation_workspace(tmp_path: Path) -> 
     assert 'id="task-form"' in html
     assert 'for="task-input"' in html
     assert 'id="session-list"' in html
+    assert '<p class="sidebar-label">项目</p>' in html
     assert 'id="conversation-panel"' in html
     assert 'id="conversation-shell"' in html
     assert 'id="composer-shell"' in html
@@ -86,6 +87,13 @@ def test_styles_define_bluewhale_palette_and_responsive_layout() -> None:
     assert ".approval-dock" in css
     assert ".approval-dock[hidden]" in css
     assert ".conversation-feed > .work-details" in css
+    assert ".project-group" in css
+    assert ".history-project-button" in css
+    assert ".project-task-list" in css
+    assert ".project-folder-icon" in css
+    assert ".session-button.active" in css
+    assert ".status-dot" not in css
+    assert ".session-copy" not in css
     assert ".message-copy-button" in css
     assert ".message:hover > .message-copy-button" in css
     assert ".assistant-message > .message-copy-button" in css
@@ -110,6 +118,7 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
         "event-view.js",
         "markdown.js",
         "message-copy.js",
+        "project-groups.js",
         "render.js",
         "store.js",
     }
@@ -120,6 +129,14 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "textContent" in scripts["render.js"]
     assert "renderMarkdown" in scripts["render.js"]
     assert 'from "./message-copy.js"' in scripts["render.js"]
+    assert 'from "./project-groups.js"' in scripts["render.js"]
+    assert "groupRunsByProject" in scripts["render.js"]
+    assert "history-project-button" in scripts["render.js"]
+    assert "project-task-list" in scripts["render.js"]
+    assert 'setAttribute("aria-expanded"' in scripts["render.js"]
+    assert 'setAttribute("aria-current", "true")' in scripts["render.js"]
+    assert "status-dot" not in scripts["render.js"]
+    assert "session-copy" not in scripts["render.js"]
     assert "createMessageCopyButton(run.task" in scripts["render.js"]
     assert "createMessageCopyButton(payload.content" in scripts["render.js"]
     assert "createElement" in scripts["markdown.js"]
@@ -142,8 +159,8 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "selectedPanel:" not in scripts["store.js"]
     assert "document.createElement(\"details\")" in scripts["render.js"]
     assert "humanToolLabel" in scripts["render.js"]
-    assert "run.workspace_name" in scripts["render.js"]
-    assert '"项目不可用"' in scripts["render.js"]
+    assert "run?.workspace_name" in scripts["project-groups.js"]
+    assert '"不可用"' in scripts["render.js"]
     assert "!run.historical && ACTIVE_STATUSES.has(run.status)" in scripts["render.js"]
     assert "app_interrupted" in scripts["render.js"]
     assert "run?.historical && connectionState === \"reconnecting\"" in scripts["app.js"]

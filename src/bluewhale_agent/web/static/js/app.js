@@ -23,6 +23,7 @@ import {
   setRuns,
   state,
   subscribe,
+  toggleProjectCollapsed,
   upsertRun,
 } from "./store.js";
 
@@ -78,6 +79,7 @@ subscribe((snapshot) => {
     onSelectRun: activateRun,
     onResolveApproval: submitApproval,
     onCopyError: (message) => showNotice(message, true),
+    onToggleProject: toggleProjectCollapsed,
   });
   updateControls();
   renderPermissionControl(snapshot.permissionMode);

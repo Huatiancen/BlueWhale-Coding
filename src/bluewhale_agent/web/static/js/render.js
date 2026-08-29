@@ -1,6 +1,7 @@
 import { findPendingApproval } from "./event-view.js";
 import { renderMarkdown } from "./markdown.js";
 import { createMessageCopyButton } from "./message-copy.js";
+import { groupRunsByProject } from "./project-groups.js";
 
 const ACTIVE_STATUSES = new Set(["initializing", "running", "waiting_approval", "verifying"]);
 
@@ -8,7 +9,14 @@ export function renderWorkspace(elements, snapshot, callbacks) {
   const run = snapshot.runs.find((item) => item.id === snapshot.activeRunId) || null;
   const events = snapshot.events.get(snapshot.activeRunId) || [];
   renderConnection(elements, snapshot.connectionState);
-  renderSessions(elements, snapshot.runs, snapshot.activeRunId, callbacks.onSelectRun);
+  renderSessions(
+    elements,
+    snapshot.runs,
+    snapshot.activeRunId,
+    snapshot.collapsedProjects,
+    callbacks.onSelectRun,
+    callbacks.onToggleProject,
+  );
   renderRunHeader(elements, run);
   renderConversation(elements, run, events, callbacks.onCopyError);
   renderApprovalDock(elements, events, run, callbacks.onResolveApproval);
@@ -27,36 +35,70 @@ function renderConnection(elements, connectionState) {
   cluster.dataset.state = connectionState;
 }
 
-function renderSessions(elements, runs, activeRunId, onSelectRun) {
+function renderSessions(
+  elements,
+  runs,
+  activeRunId,
+  collapsedProjects = new Set(),
+  onSelectRun,
+  onToggleProject,
+) {
   elements.sessionList.replaceChildren();
   elements.sessionEmpty.hidden = runs.length > 0;
-  for (const run of runs.slice().reverse()) {
+  for (const project of groupRunsByProject(runs)) {
     const item = document.createElement("li");
-    const button = element(
-      "button",
-      `session-button${run.id === activeRunId ? " active" : ""}`,
+    item.className = "project-group";
+    const containsActive = project.runs.some((run) => run.id === activeRunId);
+    const expanded = containsActive || !collapsedProjects.has(project.key);
+    const projectButton = element("button", "history-project-button");
+    projectButton.type = "button";
+    projectButton.setAttribute("aria-expanded", String(expanded));
+    projectButton.addEventListener("click", () => onToggleProject(project.key));
+    projectButton.append(
+      folderIcon(),
+      element("span", "project-name", project.name),
     );
-    button.type = "button";
-    button.addEventListener("click", () => onSelectRun(run.id));
+    if (!project.available) {
+      projectButton.append(element("span", "project-unavailable", "不可用"));
+    }
+    const chevron = element("span", "project-chevron", "›");
+    chevron.setAttribute("aria-hidden", "true");
+    projectButton.append(chevron);
 
-    const copy = element("span", "session-copy");
-    const workspaceLabel = run.workspace_available === false
-      ? "项目不可用"
-      : run.workspace_name;
-    copy.append(
-      element("strong", "", run.task),
-      element(
-        "small",
-        "",
-        [workspaceLabel, statusLabel(run.status)].filter(Boolean).join(" · "),
-      ),
-    );
-    const status = element("span", `status-dot ${run.status}`);
-    status.setAttribute("aria-label", `状态：${statusLabel(run.status)}`);
-    button.append(copy, status);
-    item.append(button);
+    const taskList = element("ol", "project-task-list");
+    taskList.hidden = !expanded;
+    for (const run of project.runs) {
+      const taskItem = document.createElement("li");
+      const taskButton = element(
+        "button",
+        `session-button${run.id === activeRunId ? " active" : ""}`,
+        run.task,
+      );
+      taskButton.type = "button";
+      taskButton.title = run.task;
+      if (run.id === activeRunId) taskButton.setAttribute("aria-current", "true");
+      taskButton.addEventListener("click", () => onSelectRun(run.id));
+      taskItem.append(taskButton);
+      taskList.append(taskItem);
+    }
+    item.append(projectButton, taskList);
     elements.sessionList.append(item);
   }
+}
+
+function folderIcon() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.classList.add("project-folder-icon");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute(
+    "d",
+    "M3.5 6.5h6l2 2h9v8.75A2.25 2.25 0 0 1 18.25 19.5H5.75A2.25 2.25 0 0 1 3.5 17.25V6.5Z",
+  );
+  svg.append(path);
+  return svg;
 }
 
 function renderRunHeader(elements, run) {
