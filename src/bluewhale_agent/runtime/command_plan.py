@@ -22,10 +22,16 @@ class StepCondition(StrEnum):
 
 @dataclass(frozen=True)
 class CommandStep:
-    """One argv vector and its dependency on the previous executed step."""
+    """One process pipeline and its dependency on the previous executed step."""
 
-    argv: tuple[str, ...]
+    commands: tuple[tuple[str, ...], ...]
     condition: StepCondition
+
+    @property
+    def argv(self) -> tuple[str, ...]:
+        """Return the command whose exit status represents this pipeline."""
+
+        return self.commands[-1]
 
 
 @dataclass(frozen=True)
@@ -45,7 +51,7 @@ _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 
 def parse_command_plan(command: str) -> CommandPlan:
-    """Parse direct commands joined by ``;``, ``&&`` or ``||``."""
+    """Parse direct pipelines joined by ``;``, ``&&`` or ``||``."""
 
     if not command.strip():
         raise CommandPlanError("命令不能为空")
@@ -59,13 +65,22 @@ def parse_command_plan(command: str) -> CommandPlan:
         raise CommandPlanError(f"命令无法解析：{exc}") from exc
 
     steps: list[CommandStep] = []
+    pipeline: list[tuple[str, ...]] = []
     current: list[str] = []
     condition = StepCondition.ALWAYS
     for token in tokens:
+        if token == "|":
+            if not current:
+                raise CommandPlanError("管道符前缺少命令")
+            pipeline.append(tuple(current))
+            current = []
+            continue
         if token in _CONDITIONS:
             if not current:
                 raise CommandPlanError("命令连接符前缺少命令")
-            steps.append(CommandStep(argv=tuple(current), condition=condition))
+            pipeline.append(tuple(current))
+            steps.append(CommandStep(commands=tuple(pipeline), condition=condition))
+            pipeline = []
             current = []
             condition = _CONDITIONS[token]
             continue
@@ -77,7 +92,8 @@ def parse_command_plan(command: str) -> CommandPlan:
 
     if not current:
         raise CommandPlanError("命令不能以连接符结尾")
-    steps.append(CommandStep(argv=tuple(current), condition=condition))
+    pipeline.append(tuple(current))
+    steps.append(CommandStep(commands=tuple(pipeline), condition=condition))
     return CommandPlan(steps=tuple(steps))
 
 

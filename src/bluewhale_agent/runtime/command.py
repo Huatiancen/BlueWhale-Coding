@@ -6,7 +6,9 @@ import asyncio
 import os
 import signal
 import tempfile
+from contextlib import suppress
 from dataclasses import dataclass, field
+from itertools import pairwise
 from pathlib import Path
 from time import monotonic
 from typing import cast
@@ -88,7 +90,8 @@ class CommandRuntime:
         except CommandPlanError as exc:
             raise ToolExecutionError(str(exc)) from exc
         for step in plan.steps:
-            self._validate_argv(step.argv)
+            for argv in step.commands:
+                self._validate_argv(argv)
         self._validate_artifact_directory()
         self._artifact_directory.mkdir(parents=True, exist_ok=True)
         artifact = self._new_artifact_path()
@@ -108,6 +111,7 @@ class CommandRuntime:
                 step_metadata.append(
                     {
                         "argv": list(step.argv),
+                        "pipeline": [list(argv) for argv in step.commands],
                         "condition": step.condition.value,
                         "skipped": True,
                         "exit_code": None,
@@ -123,13 +127,22 @@ class CommandRuntime:
             if len(plan.steps) > 1:
                 self._record_step_header(artifact, collector, step_index, step.argv)
             try:
-                last_exit_code, step_timed_out = await self._execute_step(
-                    step.argv,
-                    remaining,
-                    artifact,
-                    collector,
-                    environment,
-                )
+                if len(step.commands) == 1:
+                    last_exit_code, step_timed_out = await self._execute_step(
+                        step.argv,
+                        remaining,
+                        artifact,
+                        collector,
+                        environment,
+                    )
+                else:
+                    last_exit_code, step_timed_out = await self._execute_pipeline(
+                        step.commands,
+                        remaining,
+                        artifact,
+                        collector,
+                        environment,
+                    )
             except OSError as exc:
                 if collector.total == 0:
                     artifact.unlink(missing_ok=True)
@@ -137,6 +150,7 @@ class CommandRuntime:
             step_metadata.append(
                 {
                     "argv": list(step.argv),
+                    "pipeline": [list(argv) for argv in step.commands],
                     "condition": step.condition.value,
                     "skipped": False,
                     "exit_code": last_exit_code,
@@ -241,6 +255,98 @@ class CommandRuntime:
             raise
         return process.returncode, timed_out
 
+    async def _execute_pipeline(
+        self,
+        commands: tuple[tuple[str, ...], ...],
+        timeout_seconds: float,
+        artifact: Path,
+        collector: _OutputCollector,
+        environment: dict[str, str],
+    ) -> tuple[int | None, bool]:
+        processes: list[asyncio.subprocess.Process] = []
+        try:
+            for index, argv in enumerate(commands):
+                process = await asyncio.create_subprocess_exec(
+                    *argv,
+                    cwd=self._workspace,
+                    env=environment,
+                    stdin=(
+                        asyncio.subprocess.DEVNULL
+                        if index == 0
+                        else asyncio.subprocess.PIPE
+                    ),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    start_new_session=os.name == "posix",
+                )
+                processes.append(process)
+        except OSError:
+            await self._kill_pipeline(processes)
+            raise
+
+        pump_tasks = [
+            asyncio.create_task(self._pump(left.stdout, right.stdin))
+            for left, right in pairwise(processes)
+            if left.stdout is not None and right.stdin is not None
+        ]
+        final_stdout = processes[-1].stdout
+        if final_stdout is None:
+            await self._kill_pipeline(processes)
+            raise ToolExecutionError("Command output pipe was not created")
+        capture_tasks = [asyncio.create_task(self._capture(final_stdout, artifact, collector))]
+        capture_tasks.extend(
+            asyncio.create_task(self._capture(process.stderr, artifact, collector))
+            for process in processes
+            if process.stderr is not None
+        )
+        wait_tasks = [asyncio.create_task(process.wait()) for process in processes]
+        tasks = [*pump_tasks, *capture_tasks, *wait_tasks]
+        timed_out = False
+        try:
+            done, _ = await asyncio.wait(
+                tasks,
+                timeout=timeout_seconds,
+                return_when=asyncio.ALL_COMPLETED,
+            )
+            if len(done) != len(tasks):
+                timed_out = True
+                await self._terminate_pipeline(processes)
+            await asyncio.wait_for(
+                asyncio.gather(*tasks),
+                timeout=self.TERMINATE_GRACE_SECONDS,
+            )
+        except TimeoutError:
+            timed_out = True
+            await self._kill_pipeline(processes)
+            await asyncio.gather(*tasks, return_exceptions=True)
+        except OSError as exc:
+            await self._kill_pipeline(processes)
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise ToolExecutionError(f"Command output could not be persisted: {exc}") from exc
+        except asyncio.CancelledError:
+            await self._kill_pipeline(processes)
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        return processes[-1].returncode, timed_out
+
+    @staticmethod
+    async def _pump(
+        source: asyncio.StreamReader | None,
+        destination: asyncio.StreamWriter | None,
+    ) -> None:
+        if source is None or destination is None:
+            return
+        try:
+            while chunk := await source.read(65_536):
+                destination.write(chunk)
+                await destination.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            destination.close()
+            with suppress(BrokenPipeError, ConnectionResetError):
+                await destination.wait_closed()
+
     @staticmethod
     def _record_step_header(
         artifact: Path,
@@ -278,6 +384,24 @@ class CommandRuntime:
     async def _kill(self, process: asyncio.subprocess.Process) -> None:
         self._signal_process(process, signal.SIGKILL)
         await process.wait()
+
+    async def _terminate_pipeline(
+        self, processes: list[asyncio.subprocess.Process]
+    ) -> None:
+        for process in processes:
+            self._signal_process(process, signal.SIGTERM)
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*(process.wait() for process in processes)),
+                timeout=self.TERMINATE_GRACE_SECONDS,
+            )
+        except TimeoutError:
+            await self._kill_pipeline(processes)
+
+    async def _kill_pipeline(self, processes: list[asyncio.subprocess.Process]) -> None:
+        for process in processes:
+            self._signal_process(process, signal.SIGKILL)
+        await asyncio.gather(*(process.wait() for process in processes))
 
     @staticmethod
     def _signal_process(
@@ -336,8 +460,8 @@ class RunCommandTool(BaseTool):
 
     name = "run_command"
     description = (
-        "Run bounded, non-interactive workspace commands. Simple commands may be joined "
-        "with &&, ||, or ;. Use separate calls for pipes, redirection, and shell expansion."
+        "Run bounded, non-interactive workspace commands. Commands may use pipelines and "
+        "may be joined with &&, ||, or ;. Redirection and shell expansion are unsupported."
     )
     arguments_model = RunCommandArguments
 

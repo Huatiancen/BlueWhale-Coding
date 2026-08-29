@@ -108,3 +108,9 @@ def test_settings_read_credentials_without_exposing_secret(monkeypatch: pytest.M
     assert settings.deepseek_api_key.get_secret_value() == "test-secret"
     assert settings.model == "test-model"
     assert "test-secret" not in repr(settings)
+
+
+def test_settings_default_to_cost_effective_deepseek_flash() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.model == "deepseek-v4-flash"

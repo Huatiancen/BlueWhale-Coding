@@ -8,7 +8,7 @@ source .venv/bin/activate
 python -m pip install -e '.[dev]'
 cp .env.example .env
 
-在 .env 中填写自己的 DEEPSEEK_API_KEY，可按需修改 BLUEWHALE_MODEL，默认使用 deepseek-v4-pro。请勿提交真实密钥。
+在 .env 中填写自己的 DEEPSEEK_API_KEY，可按需修改 BLUEWHALE_MODEL，默认使用 deepseek-v4-flash。请勿提交真实密钥。
 
 启动命令：
 bluewhale serve --workspace /需要操作的项目绝对路径

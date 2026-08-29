@@ -107,7 +107,11 @@ class PermissionPolicy:
             )
             return PermissionResult(decision=decision, reason=str(exc))
 
-        results = [self._evaluate_argv(step.argv) for step in plan.steps]
+        results = [
+            self._evaluate_argv(argv)
+            for step in plan.steps
+            for argv in step.commands
+        ]
         severity = {
             PermissionDecision.ALLOW: 0,
             PermissionDecision.ASK: 1,

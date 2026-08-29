@@ -63,7 +63,7 @@ Windows PowerShell 激活命令为：
 
 ```dotenv
 DEEPSEEK_API_KEY=在此填写你自己的密钥
-BLUEWHALE_MODEL=deepseek-v4-pro
+BLUEWHALE_MODEL=deepseek-v4-flash
 BLUEWHALE_BASE_URL=https://api.deepseek.com
 ```
 

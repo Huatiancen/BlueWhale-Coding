@@ -20,10 +20,21 @@ def test_parse_preserves_quotes_and_conditions() -> None:
     ]
 
 
+def test_parse_builds_a_pipeline_inside_one_conditional_step() -> None:
+    plan = parse_command_plan("printf 'hello\\n' | tr a-z A-Z && wc -c")
+
+    assert plan.steps[0].commands == (
+        ("printf", "hello\\n"),
+        ("tr", "a-z", "A-Z"),
+    )
+    assert plan.steps[0].condition is StepCondition.ALWAYS
+    assert plan.steps[1].commands == (("wc", "-c"),)
+    assert plan.steps[1].condition is StepCondition.ON_SUCCESS
+
+
 @pytest.mark.parametrize(
     "command",
     [
-        "echo ok | wc",
         "echo x > out.txt",
         "cat < input.txt",
         "sleep 1 &",
@@ -44,6 +55,12 @@ def test_parse_rejects_unsupported_shell_syntax(command: str) -> None:
 )
 def test_parse_rejects_incomplete_command(command: str) -> None:
     with pytest.raises(CommandPlanError, match="命令"):
+        parse_command_plan(command)
+
+
+@pytest.mark.parametrize("command", ["| echo ok", "echo ok |", "echo | | wc"])
+def test_parse_rejects_incomplete_pipeline(command: str) -> None:
+    with pytest.raises(CommandPlanError, match="命令|管道"):
         parse_command_plan(command)
 
 

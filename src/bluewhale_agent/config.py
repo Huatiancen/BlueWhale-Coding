@@ -24,7 +24,7 @@ class Settings(BaseSettings):
         default=None,
         validation_alias="DEEPSEEK_API_KEY",
     )
-    model: str = "deepseek-v4-pro"
+    model: str = "deepseek-v4-flash"
     base_url: str = "https://api.deepseek.com"
     workspace: Path = Field(default_factory=Path.cwd)
     limits: Limits = Field(default_factory=Limits)

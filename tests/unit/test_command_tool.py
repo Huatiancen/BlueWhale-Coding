@@ -58,6 +58,24 @@ async def test_run_command_maps_nonzero_exit_to_error(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_command_streams_stdout_through_a_pipeline(tmp_path: Path) -> None:
+    producer = python_command("print('blue whale')")
+    consumer = python_command("import sys; print(sys.stdin.read().upper(), end='')")
+
+    result = await RunCommandTool().invoke(
+        {"command": f"{producer} | {consumer}"},
+        make_context(tmp_path),
+    )
+
+    assert result.status is ObservationStatus.SUCCESS
+    assert result.content == "BLUE WHALE\n"
+    assert result.metadata["steps"][0]["pipeline"] == [
+        [sys.executable, "-c", "print('blue whale')"],
+        [sys.executable, "-c", "import sys; print(sys.stdin.read().upper(), end='')"],
+    ]
+
+
+@pytest.mark.asyncio
 async def test_run_command_honors_success_and_failure_conditions(tmp_path: Path) -> None:
     command = " ".join(
         [
@@ -102,6 +120,34 @@ async def test_compound_command_uses_one_total_timeout_budget(tmp_path: Path) ->
     assert result.metadata["timed_out"] is True
     assert not (tmp_path / "late").exists()
     assert len(result.metadata["steps"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_pipeline_timeout_terminates_every_process(tmp_path: Path) -> None:
+    producer = python_command(
+        "import os, pathlib, time; "
+        "pathlib.Path('producer-pid').write_text(str(os.getpid())); "
+        "time.sleep(10)"
+    )
+    consumer = python_command(
+        "import os, pathlib, sys; "
+        "pathlib.Path('consumer-pid').write_text(str(os.getpid())); "
+        "sys.stdin.read()"
+    )
+
+    result = await RunCommandTool().invoke(
+        {"command": f"{producer} | {consumer}", "timeout_seconds": 0.3},
+        make_context(tmp_path),
+    )
+
+    pids = [
+        int((tmp_path / name).read_text(encoding="utf-8"))
+        for name in ("producer-pid", "consumer-pid")
+    ]
+    assert result.status is ObservationStatus.TIMEOUT
+    for pid in pids:
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
 
 
 @pytest.mark.asyncio
@@ -403,6 +449,19 @@ def test_compound_permission_uses_the_strictest_step() -> None:
 
     assert result.decision is PermissionDecision.ASK
     assert "./main" in result.reason
+
+
+def test_pipeline_permission_uses_the_strictest_command() -> None:
+    result = PermissionPolicy(mode=PermissionMode.BALANCED).evaluate(
+        Action(
+            id="pipeline",
+            tool_name="run_command",
+            arguments={"command": "cat README.md | /tmp/custom-tool"},
+        )
+    )
+
+    assert result.decision is PermissionDecision.ASK
+    assert "/tmp/custom-tool" in result.reason
 
 
 def test_balanced_does_not_trust_safe_basename_from_untrusted_absolute_path() -> None:
