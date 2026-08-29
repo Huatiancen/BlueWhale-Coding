@@ -1,5 +1,13 @@
 export function conversationTimeline(run, events) {
-  return splitTurns(run, events).flatMap((turn) => turnTimeline(turn));
+  const revertedChangesets = new Set(
+    events
+      .filter((stored) => stored.event?.kind === "changeset_reverted")
+      .map((stored) => Number(stored.event.payload?.changeset_sequence))
+      .filter(Number.isInteger),
+  );
+  return splitTurns(run, events).flatMap((turn) =>
+    turnTimeline(turn, revertedChangesets),
+  );
 }
 
 function splitTurns(run, events) {
@@ -31,7 +39,7 @@ function splitTurns(run, events) {
   return turns;
 }
 
-function turnTimeline(turn) {
+function turnTimeline(turn, revertedChangesets) {
   const timeline = [];
   const mutationActions = new Map();
   const legacyFiles = new Set();
@@ -84,7 +92,13 @@ function turnTimeline(turn) {
       timeline.push({ kind: "assistant", content: payload.content, eventIndex });
     } else if (kind === "changeset_recorded" && Array.isArray(payload.files)) {
       hasPersistedChanges = true;
-      timeline.push({ kind: "changeset", payload, eventIndex });
+      timeline.push({
+        kind: "changeset",
+        payload,
+        eventSequence: stored.sequence,
+        reverted: revertedChangesets.has(stored.sequence),
+        eventIndex,
+      });
     } else if (kind === "run_finished") {
       if (!hasPersistedChanges && legacyFiles.size) {
         timeline.push({

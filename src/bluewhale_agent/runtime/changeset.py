@@ -37,6 +37,7 @@ class FileChangeSummary(BaseModel):
     deletions: int
     before_sha256: str | None
     after_sha256: str
+    before: str | None = None
     after: str
     diff: str
 
@@ -119,6 +120,7 @@ class ChangeSet:
                     deletions=deletions,
                     before_sha256=change.before_sha256,
                     after_sha256=change.after_sha256,
+                    before=change.before,
                     after=change.after,
                     diff=_change_diff(change),
                 )

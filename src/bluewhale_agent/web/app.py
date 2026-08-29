@@ -23,7 +23,8 @@ from bluewhale_agent.runtime.paths import (
     PathAccessError,
     WorkspacePaths,
 )
-from bluewhale_agent.trajectory.store import TrajectoryCorruptionError
+from bluewhale_agent.runtime.undo import ChangeSetUndoError
+from bluewhale_agent.trajectory.store import StoredEvent, TrajectoryCorruptionError
 from bluewhale_agent.web.approvals import (
     ApprovalBroker,
     ApprovalConflictError,
@@ -245,6 +246,18 @@ def create_app(
         except RunConflictError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         return session.response()
+
+    @app.post(
+        "/api/runs/{run_id}/changesets/{changeset_sequence}/undo",
+        response_model=StoredEvent,
+    )
+    async def undo_run_changeset(run_id: str, changeset_sequence: int) -> StoredEvent:
+        try:
+            return await manager.undo_changeset(run_id, changeset_sequence)
+        except RunNotFoundError as error:
+            raise HTTPException(status_code=404, detail=f"Unknown run: {run_id}") from error
+        except (RunConflictError, ChangeSetUndoError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post(
         "/api/runs/{run_id}/approvals/{approval_id}",

@@ -125,6 +125,22 @@ test("places a persisted changeset in the turn that produced it", () => {
   assert.equal(timeline.some((entry) => entry.kind === "result"), false);
 });
 
+test("marks a persisted changeset as reverted", () => {
+  const timeline = conversationTimeline(
+    { task: "修改代码" },
+    [
+      stored(1, "run_started", { task: "修改代码" }),
+      stored(2, "changeset_recorded", { files: [{ path: "app.py" }] }),
+      stored(3, "run_finished", { status: "completed" }),
+      stored(4, "changeset_reverted", { changeset_sequence: 2, files: ["app.py"] }),
+    ],
+  );
+
+  const changeset = timeline.find((entry) => entry.kind === "changeset");
+  assert.equal(changeset.eventSequence, 2);
+  assert.equal(changeset.reverted, true);
+});
+
 test("builds a source-only fallback card for older mutation history", () => {
   const timeline = conversationTimeline(
     { task: "旧任务" },

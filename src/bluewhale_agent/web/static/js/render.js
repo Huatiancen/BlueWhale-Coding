@@ -26,6 +26,7 @@ export function renderWorkspace(elements, snapshot, callbacks) {
     events,
     callbacks.onCopyError,
     callbacks.onSelectArtifact,
+    callbacks.onUndoChangeset,
   );
   renderApprovalDock(elements, events, run, callbacks.onResolveApproval);
 }
@@ -126,7 +127,14 @@ function renderRunHeader(elements, run) {
   elements.submitButton.hidden = active;
 }
 
-function renderConversation(elements, run, events, onCopyError, onSelectArtifact) {
+function renderConversation(
+  elements,
+  run,
+  events,
+  onCopyError,
+  onSelectArtifact,
+  onUndoChangeset,
+) {
   elements.conversation.replaceChildren();
   elements.conversationEmpty.hidden = Boolean(run);
   if (!run) return;
@@ -151,15 +159,21 @@ function renderConversation(elements, run, events, onCopyError, onSelectArtifact
       );
       elements.conversation.append(message);
     } else if (entry.kind === "changeset") {
-      elements.conversation.append(changeSetCard(entry.payload, onSelectArtifact));
+      elements.conversation.append(
+        changeSetCard(entry, onSelectArtifact, onUndoChangeset),
+      );
     }
   }
   const scroller = elements.conversation.closest(".conversation-scroll");
   scroller.scrollTop = scroller.scrollHeight;
 }
 
-function changeSetCard(payload, onSelectArtifact) {
+function changeSetCard(entry, onSelectArtifact, onUndoChangeset) {
+  const { payload } = entry;
   const files = payload.files || [];
+  const hasRollbackSnapshot = files.every(
+    (file) => file.created || typeof file.before === "string",
+  );
   const card = element("section", "changeset-card");
   const heading = element("div", "changeset-heading");
   const icon = element("span", "changeset-icon", "▣");
@@ -178,10 +192,28 @@ function changeSetCard(payload, onSelectArtifact) {
     element("strong", "", `${payload.legacy ? "涉及" : "已编辑"} ${files.length} 个文件`),
     totals,
   );
-  const undo = element("button", "changeset-undo", "撤销");
+  const undo = element(
+    "button",
+    "changeset-undo",
+    entry.reverted ? "已撤销" : "撤销",
+  );
   undo.type = "button";
-  undo.disabled = true;
-  undo.title = "撤销功能即将支持";
+  undo.disabled = Boolean(
+    payload.legacy || entry.reverted || !entry.eventSequence || !hasRollbackSnapshot
+  );
+  if (payload.legacy || !hasRollbackSnapshot) {
+    undo.title = "旧版历史记录不包含可撤销快照";
+  }
+  undo.addEventListener("click", async () => {
+    if (undo.disabled || !onUndoChangeset) return;
+    undo.disabled = true;
+    undo.textContent = "撤销中…";
+    const reverted = await onUndoChangeset(entry.eventSequence);
+    if (!reverted) {
+      undo.disabled = false;
+      undo.textContent = "撤销";
+    }
+  });
   heading.append(
     icon,
     summary,

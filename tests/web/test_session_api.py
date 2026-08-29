@@ -11,7 +11,9 @@ import pytest_asyncio
 from fastapi import FastAPI
 from pydantic import ValidationError
 
+from bluewhale_agent.domain.events import EventKind, RunEvent
 from bluewhale_agent.domain.models import MessageRole, ModelResponse
+from bluewhale_agent.runtime.changeset import ChangeSet
 from bluewhale_agent.runtime.permissions import PermissionMode
 from bluewhale_agent.web.app import create_app
 from bluewhale_agent.web.schemas import RunCreateRequest
@@ -175,6 +177,49 @@ async def test_invalid_last_event_id_is_rejected(client: httpx.AsyncClient) -> N
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Last-Event-ID must be a non-negative integer"
+
+
+@pytest.mark.asyncio
+async def test_changeset_undo_restores_files_and_cannot_be_repeated(
+    completed_app: FastAPI,
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "app.py"
+    target.write_text("before\n", encoding="utf-8")
+    await client.post(
+        "/api/runs",
+        json={"run_id": "undo-run", "task": "Change app", "workspace": "."},
+    )
+    await wait_for_terminal(client, "undo-run")
+    target.write_text("after\n", encoding="utf-8")
+    changes = ChangeSet()
+    changes.record("app.py", "before\n", "after\n")
+    session = completed_app.state.sessions.get("undo-run")
+    recorded = session.trajectory.append(
+        RunEvent(
+            run_id="undo-run",
+            kind=EventKind.CHANGESET_RECORDED,
+            payload=changes.snapshot().model_dump(mode="json"),
+        )
+    )
+
+    reverted = await client.post(
+        f"/api/runs/undo-run/changesets/{recorded.sequence}/undo"
+    )
+    repeated = await client.post(
+        f"/api/runs/undo-run/changesets/{recorded.sequence}/undo"
+    )
+
+    assert reverted.status_code == 200
+    assert reverted.json()["event"]["kind"] == "changeset_reverted"
+    assert reverted.json()["event"]["payload"] == {
+        "changeset_sequence": recorded.sequence,
+        "files": ["app.py"],
+    }
+    assert target.read_text(encoding="utf-8") == "before\n"
+    assert repeated.status_code == 409
+    assert repeated.json()["detail"] == "This change set has already been reverted"
 
 
 @pytest.mark.asyncio

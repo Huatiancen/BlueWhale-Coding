@@ -7,6 +7,7 @@ import {
   listRuns,
   resolveApproval,
   stopRun,
+  undoChangeset,
 } from "./api.js";
 import {
   activateDesktopHistoryWorkspace,
@@ -135,6 +136,7 @@ subscribe((snapshot) => {
     onCopyError: (message) => showNotice(message, true),
     onToggleProject: toggleProjectCollapsed,
     onSelectArtifact: openArtifact,
+    onUndoChangeset: undoActiveChangeset,
   });
   updateControls();
   renderPermissionControl(snapshot.permissionMode);
@@ -244,6 +246,22 @@ async function submitApproval(runId, approvalId, decision) {
   hideNotice();
   try {
     await resolveApproval(runId, approvalId, decision);
+    return true;
+  } catch (error) {
+    showNotice(error.message, true);
+    return false;
+  }
+}
+
+async function undoActiveChangeset(changesetSequence) {
+  const runId = state.activeRunId;
+  if (!runId) return false;
+  hideNotice();
+  try {
+    const storedEvent = await undoChangeset(runId, changesetSequence);
+    addEvent(runId, storedEvent);
+    closeArtifact();
+    showNotice("已撤销该轮文件变更。");
     return true;
   } catch (error) {
     showNotice(error.message, true);

@@ -8,6 +8,7 @@ const EVENT_TYPES = [
   "observation_received",
   "verification_finished",
   "changeset_recorded",
+  "changeset_reverted",
   "run_finished",
 ];
 
@@ -64,6 +65,13 @@ export function continueRun(runId, { task, workspace, workspaceGrantId, permissi
 
 export function stopRun(runId) {
   return request(`/api/runs/${encodeURIComponent(runId)}/stop`, { method: "POST" });
+}
+
+export function undoChangeset(runId, changesetSequence) {
+  return request(
+    `/api/runs/${encodeURIComponent(runId)}/changesets/${encodeURIComponent(changesetSequence)}/undo`,
+    { method: "POST" },
+  );
 }
 
 export function resolveApproval(runId, approvalId, decision) {

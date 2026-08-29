@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from pydantic import ValidationError
+
 from bluewhale_agent.agent.loop import AgentLoop, AgentRunResult
 from bluewhale_agent.domain.events import EventKind, RunEvent
 from bluewhale_agent.domain.models import Action, Limits, RunStatus
@@ -18,7 +20,9 @@ from bluewhale_agent.history.importer import ImportResult, LegacyHistoryImporter
 from bluewhale_agent.history.projector import project_history
 from bluewhale_agent.history.repository import HistoryRecord, HistoryRepository
 from bluewhale_agent.providers.base import ModelProvider
+from bluewhale_agent.runtime.changeset import ChangeSetSnapshot
 from bluewhale_agent.runtime.permissions import PermissionResult
+from bluewhale_agent.runtime.undo import ChangeSetUndoError, undo_changeset
 from bluewhale_agent.trajectory.store import StoredEvent, TrajectoryStore
 from bluewhale_agent.web.approvals import (
     ApprovalBroker,
@@ -353,6 +357,44 @@ class SessionManager:
             await background
         return session
 
+    async def undo_changeset(self, run_id: str, changeset_sequence: int) -> StoredEvent:
+        """Safely revert one persisted change set and record the result."""
+
+        async with self._lock:
+            session = self.get(run_id)
+            if any(self._is_active(candidate) for candidate in self._sessions.values()):
+                raise RunConflictError("Stop the active task before undoing changes")
+
+            events = session.trajectory.events_after(0)
+            target = next(
+                (stored for stored in events if stored.sequence == changeset_sequence),
+                None,
+            )
+            if target is None or target.event.kind is not EventKind.CHANGESET_RECORDED:
+                raise ChangeSetUndoError("The requested change set does not exist")
+            if any(
+                stored.event.kind is EventKind.CHANGESET_REVERTED
+                and stored.event.payload.get("changeset_sequence") == changeset_sequence
+                for stored in events
+            ):
+                raise ChangeSetUndoError("This change set has already been reverted")
+            try:
+                snapshot = ChangeSetSnapshot.model_validate(target.event.payload)
+            except ValidationError as error:
+                raise ChangeSetUndoError(
+                    "This history record does not contain valid rollback data"
+                ) from error
+
+            workspace = self.workspace_for_run(run_id)
+            if workspace is None or not workspace.is_dir():
+                raise ChangeSetUndoError("The task workspace is no longer available")
+            files = undo_changeset(workspace, snapshot)
+            return self._publish(
+                session,
+                EventKind.CHANGESET_REVERTED,
+                {"changeset_sequence": changeset_sequence, "files": list(files)},
+            )
+
     async def stream_events(
         self,
         run_id: str,
@@ -468,7 +510,7 @@ class SessionManager:
 
     @staticmethod
     def _publish(
-        session: RunSession,
+        session: SessionView,
         kind: EventKind,
         payload: dict[str, object],
     ) -> StoredEvent:

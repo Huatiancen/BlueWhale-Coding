@@ -21,6 +21,7 @@ class EventKind(StrEnum):
     OBSERVATION_RECEIVED = "observation_received"
     VERIFICATION_FINISHED = "verification_finished"
     CHANGESET_RECORDED = "changeset_recorded"
+    CHANGESET_REVERTED = "changeset_reverted"
     RUN_FINISHED = "run_finished"
 
 

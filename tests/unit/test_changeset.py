@@ -14,6 +14,7 @@ def test_snapshot_reports_stable_file_and_line_counts() -> None:
     app = snapshot.files[0]
     assert app.created is False
     assert (app.additions, app.deletions) == (2, 1)
+    assert app.before == "old\nkeep\n"
     assert app.after == "new\nkeep\nextra\n"
     assert "--- a/src/app.py" in app.diff
     assert "+new" in app.diff
