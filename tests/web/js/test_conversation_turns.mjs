@@ -27,6 +27,39 @@ test("builds interleaved user and assistant messages from every run", () => {
   );
 });
 
+test("moves tool-call narration into work and keeps only the final answer in chat", () => {
+  const timeline = conversationTimeline(
+    { task: "解释项目" },
+    [
+      stored(1, "run_started", { task: "解释项目" }),
+      stored(2, "model_response", {
+        content: "我先读取项目文件。",
+        finish_reason: "tool_calls",
+        tool_calls: [{ id: "read-1", tool_name: "read_file" }],
+      }),
+      stored(3, "action_requested", {
+        action: { id: "read-1", tool_name: "read_file", arguments: { path: "app.py" } },
+      }),
+      stored(4, "observation_received", {
+        observation: { action_id: "read-1", status: "success" },
+      }),
+      stored(5, "model_response", {
+        content: "项目入口是 app.py。",
+        finish_reason: "stop",
+        tool_calls: [],
+      }),
+      stored(6, "run_finished", { status: "completed" }),
+    ],
+  );
+
+  assert.deepEqual(
+    timeline.filter((entry) => entry.kind === "assistant").map((entry) => entry.content),
+    ["项目入口是 app.py。"],
+  );
+  const work = timeline.find((entry) => entry.kind === "work");
+  assert.deepEqual(work.modelNarration, ["我先读取项目文件。"]);
+});
+
 test("keeps failed turn details inside work instead of the conversation body", () => {
   const timeline = conversationTimeline(
     { task: "运行任务" },

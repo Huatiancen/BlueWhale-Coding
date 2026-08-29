@@ -724,22 +724,7 @@ summary:focus-visible {
 }
 
 .assistant-message {
-  display: grid;
-  grid-template-columns: 27px minmax(0, 1fr);
-  align-items: start;
-  gap: 12px;
-}
-
-.assistant-avatar {
-  display: grid;
-  width: 27px;
-  height: 27px;
-  place-items: center;
-  border-radius: 8px;
-  color: #ffffff;
-  background: var(--cyan-400);
-  font-size: 0.72rem;
-  font-weight: 750;
+  display: block;
 }
 
 .message-copy {
@@ -784,7 +769,7 @@ summary:focus-visible {
 
 .assistant-message > .message-copy-button {
   bottom: -28px;
-  left: 39px;
+  left: 0;
 }
 
 .user-message > .message-copy-button {
@@ -1151,6 +1136,22 @@ summary {
   color: var(--ink-300);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.model-process-step {
+  align-items: start;
+  padding: 7px 0;
+}
+
+.model-process-step .step-dot {
+  margin-top: 0.5em;
+}
+
+.model-process-step .step-title {
+  overflow: visible;
+  line-height: 1.55;
+  text-overflow: clip;
+  white-space: pre-wrap;
 }
 
 .step-state {

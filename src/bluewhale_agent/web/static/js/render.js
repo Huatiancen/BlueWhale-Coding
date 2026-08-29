@@ -146,7 +146,6 @@ function renderConversation(elements, run, events, onCopyError, onSelectArtifact
       const markdown = renderMarkdown(entry.content);
       markdown.classList.add("message-copy");
       message.append(
-        avatar(),
         markdown,
         createMessageCopyButton(entry.content, { onError: onCopyError }),
       );
@@ -217,12 +216,6 @@ function renderApprovalDock(elements, events, run, onResolveApproval) {
   const stored = findPendingApproval(events);
   elements.approvalDock.hidden = !stored;
   if (stored) elements.approvalDock.append(approvalCard(stored, onResolveApproval));
-}
-
-function avatar() {
-  const node = element("span", "assistant-avatar", "B");
-  node.setAttribute("aria-hidden", "true");
-  return node;
 }
 
 function approvalCard(stored, onResolveApproval) {
@@ -310,18 +303,37 @@ function createWorkDetails(work) {
   wrapper.className = "work-disclosure";
   wrapper.append(workSummary(work));
   const list = element("ol", "work-list");
+  for (const narration of work.modelNarration || []) {
+    list.append(modelProcessStep(narration));
+  }
   for (const stored of actions) {
     list.append(workStep(stored, observations.get(stored.event.payload.action?.id)));
   }
   for (const stored of unmatchedFailures) list.append(observationStep(stored));
   if (verification) list.append(verificationStep(verification));
   if (failedRun) list.append(runOutcomeStep(failedRun));
-  if (!actions.length && !unmatchedFailures.length && !verification && !failedRun) {
+  if (
+    !work.modelNarration?.length &&
+    !actions.length &&
+    !unmatchedFailures.length &&
+    !verification &&
+    !failedRun
+  ) {
     list.append(element("li", "work-empty", "本轮未调用本地工具"));
   }
   wrapper.append(list);
   section.append(wrapper);
   return section;
+}
+
+function modelProcessStep(content) {
+  const item = element("li", "work-step model-process-step");
+  item.append(
+    element("span", "step-dot"),
+    element("span", "step-title", content),
+    element("span", "step-state", "分析"),
+  );
+  return item;
 }
 
 function workSummary(work) {

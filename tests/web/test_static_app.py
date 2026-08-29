@@ -116,6 +116,8 @@ def test_styles_define_bluewhale_palette_and_responsive_layout() -> None:
     assert ".message:hover > .message-copy-button" in css
     assert ".assistant-message > .message-copy-button" in css
     assert ".user-message > .message-copy-button" in css
+    assert ".assistant-avatar" not in css
+    assert ".model-process-step" in css
     assert ".diff-line.addition" in css
     assert ".diff-line.deletion" in css
     assert ".diff-line.hunk" in css
@@ -197,6 +199,8 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "status-dot" not in scripts["render.js"]
     assert "session-copy" not in scripts["render.js"]
     assert "createMessageCopyButton(entry.content" in scripts["render.js"]
+    assert "assistant-avatar" not in scripts["render.js"]
+    assert "modelNarration" in scripts["render.js"]
     assert '"撤销"' in scripts["render.js"]
     assert '"审核"' not in scripts["render.js"]
     assert "createElement" in scripts["markdown.js"]

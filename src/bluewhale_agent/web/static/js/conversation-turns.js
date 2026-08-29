@@ -53,6 +53,14 @@ function turnTimeline(turn) {
   timeline.push({
     kind: "work",
     events: storedEvents,
+    modelNarration: storedEvents
+      .filter(
+        (stored) =>
+          stored.event?.kind === "model_response" &&
+          isProcessModelResponse(stored.event.payload),
+      )
+      .map((stored) => stored.event.payload.content?.trim())
+      .filter(Boolean),
     startedAt: eventTime(start?.stored || firstItem?.stored),
     finishedAt: eventTime(finish?.stored),
     active: !finish,
@@ -70,7 +78,8 @@ function turnTimeline(turn) {
     } else if (
       kind === "model_response" &&
       typeof payload.content === "string" &&
-      payload.content
+      payload.content &&
+      !isProcessModelResponse(payload)
     ) {
       timeline.push({ kind: "assistant", content: payload.content, eventIndex });
     } else if (kind === "changeset_recorded" && Array.isArray(payload.files)) {
@@ -96,6 +105,13 @@ function turnTimeline(turn) {
     }
   }
   return timeline;
+}
+
+export function isProcessModelResponse(payload) {
+  return (
+    payload?.finish_reason === "tool_calls" ||
+    (Array.isArray(payload?.tool_calls) && payload.tool_calls.length > 0)
+  );
 }
 
 function eventTime(stored) {
