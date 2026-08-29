@@ -26,6 +26,7 @@ export function renderArtifactInspector(elements, artifact, { onClose }) {
       elements.inspectorToolbar.append(button);
     }
     elements.inspectorContent.replaceChildren();
+    elements.inspectorContent.classList.toggle("diff-mode", active === "差异");
     if (active === "预览") {
       const preview = renderMarkdown(artifact.after || artifact.currentContent || "");
       preview.classList.add("artifact-markdown");
@@ -34,7 +35,10 @@ export function renderArtifactInspector(elements, artifact, { onClose }) {
     }
     if (active === "差异") {
       elements.inspectorContent.append(
-        renderUnifiedDiff(artifact.diff || "此历史记录没有保存差异。"),
+        renderUnifiedDiff(artifact.diff || "此历史记录没有保存差异。", {
+          path: artifact.path,
+          content: artifact.after || artifact.currentContent || "",
+        }),
       );
       return;
     }

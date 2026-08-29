@@ -136,23 +136,11 @@ def test_styles_define_bluewhale_palette_and_responsive_layout() -> None:
     assert ".diff-line.addition" in css
     assert ".diff-line.deletion" in css
     assert ".diff-line.hunk" in css
+    assert ".diff-line.collapsed" in css
     assert ".diff-line-number" in css
-    inspector_content = css_rule(css, ".inspector-content")
-    assert "min-width: 0" in inspector_content
-    artifact_code = css_rule(css, ".artifact-code")
-    assert "min-width: max-content" not in artifact_code
-    assert "white-space: pre-wrap" in artifact_code
-    assert "overflow-wrap: anywhere" in artifact_code
-    artifact_diff = css_rule(css, ".artifact-diff")
-    assert "min-width: max-content" not in artifact_diff
-    assert "min-width: 0" in artifact_diff
-    assert "width: 100%" in artifact_diff
-    diff_line = css_rule(css, ".diff-line")
-    assert "minmax(0, 1fr)" in diff_line
-    assert "minmax(420px, 1fr)" not in diff_line
-    diff_code = css_rule(css, ".diff-code")
-    assert "white-space: pre-wrap" in diff_code
-    assert "overflow-wrap: anywhere" in diff_code
+    assert "border-left" in css_rule(css, ".diff-line.addition")
+    assert "border-left" in css_rule(css, ".diff-line.deletion")
+    assert ".diff-token.keyword" in css
     assert ".turn-work" in css
     assert ".work-duration" in css
     assert 'transform: rotate(90deg)' in css_rule(
