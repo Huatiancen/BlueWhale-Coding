@@ -480,19 +480,21 @@ summary:focus-visible {
 }
 
 .inspector-mode.active { color: var(--ink-100); background: var(--ocean-850); }
-.inspector-content { min-height: 0; overflow: auto; padding: 22px; }
+.inspector-content { min-width: 0; min-height: 0; overflow: auto; padding: 22px; }
 .artifact-code {
-  min-width: max-content;
+  width: 100%;
+  min-width: 0;
   margin: 0;
   color: var(--ink-200);
   font: 0.72rem/1.7 var(--font-mono);
-  white-space: pre;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
-.artifact-markdown { max-width: 760px; line-height: 1.75; }
+.artifact-markdown { width: 100%; max-width: none; overflow-wrap: anywhere; line-height: 1.75; }
 
 .artifact-diff {
-  min-width: max-content;
-  overflow: hidden;
+  width: 100%;
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #ffffff;
@@ -501,7 +503,7 @@ summary:focus-visible {
 
 .diff-line {
   display: grid;
-  grid-template-columns: 48px 48px 24px minmax(420px, 1fr);
+  grid-template-columns: 42px 42px 22px minmax(0, 1fr);
   min-height: 22px;
 }
 
@@ -528,7 +530,13 @@ summary:focus-visible {
 
 .diff-line.addition .diff-marker { color: #16834c; }
 .diff-line.deletion .diff-marker { color: #c43d3d; }
-.diff-code { padding: 1px 12px 1px 2px; color: var(--ink-200); white-space: pre; }
+.diff-code {
+  min-width: 0;
+  padding: 1px 12px 1px 2px;
+  color: var(--ink-200);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
 .diff-line.hunk .diff-code,
 .diff-line.file .diff-code,
 .diff-line.meta .diff-code { grid-column: 1 / -1; padding-left: 12px; }
