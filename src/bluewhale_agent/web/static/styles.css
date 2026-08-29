@@ -462,6 +462,7 @@ summary:focus-visible {
 }
 
 .message {
+  position: relative;
   min-width: 0;
 }
 
@@ -505,6 +506,55 @@ summary:focus-visible {
   color: var(--ink-200);
   font-size: 0.9rem;
   line-height: 1.72;
+}
+
+.message-copy-button {
+  position: absolute;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  color: var(--ink-500);
+  background: transparent;
+  font-size: 0.9rem;
+  line-height: 1;
+  opacity: 0;
+  transition: color 140ms ease, background 140ms ease, opacity 140ms ease;
+}
+
+.message:hover > .message-copy-button,
+.message:focus-within > .message-copy-button,
+.message-copy-button:focus-visible {
+  opacity: 1;
+}
+
+.message-copy-button:hover,
+.message-copy-button:focus-visible {
+  color: var(--ink-200);
+  background: var(--ocean-850);
+}
+
+.message-copy-button:disabled {
+  cursor: default;
+}
+
+.assistant-message > .message-copy-button {
+  bottom: -28px;
+  left: 39px;
+}
+
+.user-message > .message-copy-button {
+  right: 0;
+  bottom: -28px;
+}
+
+@media (hover: none) {
+  .message-copy-button {
+    opacity: 0.58;
+  }
 }
 
 .markdown-body > :first-child {

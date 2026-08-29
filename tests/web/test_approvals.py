@@ -239,6 +239,9 @@ def test_gui_exposes_safe_approval_and_stop_controls() -> None:
     assert "/approvals/" in api
     assert 'window.confirm("确定要停止当前任务吗？")' in app
     assert 'setConnectionState("stopping")' in app
+    assert "已批准本次操作" not in app
+    assert "已拒绝本次操作" not in app
+    assert "showNotice(error.message, true)" in app
     assert 'from "./event-view.js"' in render
     assert "onResolveApproval" in render
     assert "renderApprovalDock(elements, events" in render

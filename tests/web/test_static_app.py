@@ -86,6 +86,10 @@ def test_styles_define_bluewhale_palette_and_responsive_layout() -> None:
     assert ".approval-dock" in css
     assert ".approval-dock[hidden]" in css
     assert ".conversation-feed > .work-details" in css
+    assert ".message-copy-button" in css
+    assert ".message:hover > .message-copy-button" in css
+    assert ".assistant-message > .message-copy-button" in css
+    assert ".user-message > .message-copy-button" in css
     assert "max-width: 860px" in css
     assert "@media" in css
     assert "prefers-reduced-motion" in css
@@ -105,6 +109,7 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
         "desktop.js",
         "event-view.js",
         "markdown.js",
+        "message-copy.js",
         "render.js",
         "store.js",
     }
@@ -114,6 +119,9 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "eval(" not in combined
     assert "textContent" in scripts["render.js"]
     assert "renderMarkdown" in scripts["render.js"]
+    assert 'from "./message-copy.js"' in scripts["render.js"]
+    assert "createMessageCopyButton(run.task" in scripts["render.js"]
+    assert "createMessageCopyButton(payload.content" in scripts["render.js"]
     assert "createElement" in scripts["markdown.js"]
     assert "fetch(" in scripts["api.js"]
     assert "new EventSource" in scripts["api.js"]
@@ -129,6 +137,7 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "setPermissionMode" in scripts["store.js"]
     assert "permission_mode" in scripts["api.js"]
     assert "permissionMode" in scripts["app.js"]
+    assert "onCopyError" in scripts["app.js"]
     assert "aria-checked" in scripts["app.js"]
     assert "selectedPanel:" not in scripts["store.js"]
     assert "document.createElement(\"details\")" in scripts["render.js"]
@@ -143,6 +152,7 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "activity-timeline" not in scripts["app.js"]
     assert 'elements.taskInput.value = "";\n    resizeComposer();' in scripts["app.js"]
     assert "applyWorkspace(result);\n      await refreshRuns();" in scripts["app.js"]
+    assert "execCommand" not in combined
 
 
 def test_static_assets_are_included_in_package_configuration() -> None:

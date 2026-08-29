@@ -77,6 +77,7 @@ subscribe((snapshot) => {
   renderWorkspace(elements, snapshot, {
     onSelectRun: activateRun,
     onResolveApproval: submitApproval,
+    onCopyError: (message) => showNotice(message, true),
   });
   updateControls();
   renderPermissionControl(snapshot.permissionMode);
@@ -167,7 +168,6 @@ async function submitApproval(runId, approvalId, decision) {
   hideNotice();
   try {
     await resolveApproval(runId, approvalId, decision);
-    showNotice(decision === "approve" ? "已批准本次操作。" : "已拒绝本次操作。");
     return true;
   } catch (error) {
     showNotice(error.message, true);

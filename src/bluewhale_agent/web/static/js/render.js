@@ -1,5 +1,6 @@
 import { findPendingApproval } from "./event-view.js";
 import { renderMarkdown } from "./markdown.js";
+import { createMessageCopyButton } from "./message-copy.js";
 
 const ACTIVE_STATUSES = new Set(["initializing", "running", "waiting_approval", "verifying"]);
 
@@ -9,7 +10,7 @@ export function renderWorkspace(elements, snapshot, callbacks) {
   renderConnection(elements, snapshot.connectionState);
   renderSessions(elements, snapshot.runs, snapshot.activeRunId, callbacks.onSelectRun);
   renderRunHeader(elements, run);
-  renderConversation(elements, run, events);
+  renderConversation(elements, run, events, callbacks.onCopyError);
   renderApprovalDock(elements, events, run, callbacks.onResolveApproval);
 }
 
@@ -74,13 +75,16 @@ function renderRunHeader(elements, run) {
   elements.submitButton.hidden = active;
 }
 
-function renderConversation(elements, run, events) {
+function renderConversation(elements, run, events, onCopyError) {
   elements.conversation.replaceChildren();
   elements.conversationEmpty.hidden = Boolean(run);
   if (!run) return;
 
   const userMessage = element("article", "message user-message");
-  userMessage.append(element("p", "", run.task));
+  userMessage.append(
+    element("p", "", run.task),
+    createMessageCopyButton(run.task, { onError: onCopyError }),
+  );
   elements.conversation.append(userMessage);
 
   const workDetails = createWorkDetails(run, events);
@@ -92,7 +96,11 @@ function renderConversation(elements, run, events) {
       const message = element("article", "message assistant-message");
       const markdown = renderMarkdown(payload.content);
       markdown.classList.add("message-copy");
-      message.append(avatar(), markdown);
+      message.append(
+        avatar(),
+        markdown,
+        createMessageCopyButton(payload.content, { onError: onCopyError }),
+      );
       elements.conversation.append(message);
     } else if (
       kind === "observation_received" &&
