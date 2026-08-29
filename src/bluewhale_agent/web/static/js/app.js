@@ -26,6 +26,13 @@ import {
   upsertRun,
 } from "./store.js";
 
+const ACTIVE_RUN_STATUSES = new Set([
+  "initializing",
+  "running",
+  "waiting_approval",
+  "verifying",
+]);
+
 const elements = {
   connection: document.querySelector("#connection-status"),
   sessionList: document.querySelector("#session-list"),
@@ -186,8 +193,14 @@ function activateRun(runId) {
 function connectToRun(runId) {
   closeStream();
   setConnectionState("connecting");
+  const run = state.runs.find((item) => item.id === runId);
   closeEventStream = connectRunEvents(runId, {
     onState(connectionState, detail) {
+      if (run?.historical && connectionState === "reconnecting") {
+        closeStream();
+        setConnectionState("idle");
+        return;
+      }
       setConnectionState(connectionState);
       if (detail) showNotice(detail, true);
     },
@@ -240,6 +253,7 @@ async function openDesktopProject() {
     const result = await selectDesktopWorkspace(desktopBridge);
     if (!result.cancelled) {
       applyWorkspace(result);
+      await refreshRuns();
       showNotice(`已授权项目：${result.display_name}`);
     }
   } catch (error) {
@@ -299,8 +313,8 @@ async function clearApiKey() {
 }
 
 function updateControls() {
-  const active = state.runs.some((run) =>
-    ["initializing", "running", "waiting_approval", "verifying"].includes(run.status),
+  const active = state.runs.some(
+    (run) => !run.historical && ACTIVE_RUN_STATUSES.has(run.status),
   );
   elements.openProject.disabled = busy || active;
   elements.desktopProject.disabled = busy || active;

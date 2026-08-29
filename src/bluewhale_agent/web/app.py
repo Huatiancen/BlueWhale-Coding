@@ -13,6 +13,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
 from bluewhale_agent.config import Settings
+from bluewhale_agent.history.repository import HistoryRepository
 from bluewhale_agent.providers.base import ModelProvider
 from bluewhale_agent.providers.deepseek import DeepSeekProvider
 from bluewhale_agent.web.approvals import (
@@ -33,8 +34,8 @@ from bluewhale_agent.web.sessions import (
     ProviderFactory,
     RunConflictError,
     RunNotFoundError,
-    RunSession,
     SessionManager,
+    SessionView,
 )
 from bluewhale_agent.web.workspaces import (
     RootWorkspaceResolver,
@@ -51,6 +52,7 @@ def create_app(
     settings: Settings | None = None,
     approval_timeout_seconds: float = 60.0,
     desktop_token: str | None = None,
+    history_root: Path | None = None,
 ) -> FastAPI:
     """Build an app whose agent runs are restricted to one configured root."""
 
@@ -72,6 +74,7 @@ def create_app(
         provider_factory=provider_factory or default_provider_factory,
         limits=selected_settings.limits,
         approval_broker=approvals,
+        history_repository=HistoryRepository(history_root) if history_root is not None else None,
     )
 
     @asynccontextmanager
@@ -173,6 +176,8 @@ def create_app(
             session = await manager.stop(run_id)
         except RunNotFoundError as error:
             raise HTTPException(status_code=404, detail=f"Unknown run: {run_id}") from error
+        except RunConflictError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         return session.response()
 
     @app.post(
@@ -218,7 +223,7 @@ def create_app(
     return app
 
 
-def _get_session(manager: SessionManager, run_id: str) -> RunSession:
+def _get_session(manager: SessionManager, run_id: str) -> SessionView:
     try:
         return manager.get(run_id)
     except RunNotFoundError as error:

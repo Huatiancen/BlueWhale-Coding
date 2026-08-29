@@ -133,9 +133,16 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "selectedPanel:" not in scripts["store.js"]
     assert "document.createElement(\"details\")" in scripts["render.js"]
     assert "humanToolLabel" in scripts["render.js"]
+    assert "run.workspace_name" in scripts["render.js"]
+    assert '"项目不可用"' in scripts["render.js"]
+    assert "!run.historical && ACTIVE_STATUSES.has(run.status)" in scripts["render.js"]
+    assert "app_interrupted" in scripts["render.js"]
+    assert "run?.historical && connectionState === \"reconnecting\"" in scripts["app.js"]
+    assert "!run.historical && ACTIVE_RUN_STATUSES.has(run.status)" in scripts["app.js"]
     assert "shortId(run.id)" not in scripts["render.js"]
     assert "activity-timeline" not in scripts["app.js"]
     assert 'elements.taskInput.value = "";\n    resizeComposer();' in scripts["app.js"]
+    assert "applyWorkspace(result);\n      await refreshRuns();" in scripts["app.js"]
 
 
 def test_static_assets_are_included_in_package_configuration() -> None:

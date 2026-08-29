@@ -6,6 +6,7 @@ import importlib
 import secrets
 import sys
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, Protocol
 
 from fastapi import FastAPI
@@ -50,6 +51,7 @@ def run_desktop(
     settings: Settings | None = None,
     controller_factory: ControllerFactory | None = None,
     platform: str | None = None,
+    history_root: Path | None = None,
 ) -> int:
     """Run BlueWhale in a native macOS WebKit window."""
 
@@ -68,11 +70,13 @@ def run_desktop(
     grants = WorkspaceGrantRegistry()
     selected_store = secret_store or KeyringSecretStore()
     selected_settings = settings or Settings()
+    selected_history_root = history_root or desktop_history_root()
     app = create_app(
         workspace_resolver=GrantedWorkspaceResolver(grants),
         provider_factory=build_desktop_provider_factory(selected_store, selected_settings),
         settings=selected_settings,
         desktop_token=launch_token,
+        history_root=selected_history_root,
     )
     file_dialog = getattr(webview_module, "FileDialog", None)
     folder_dialog_type = (
@@ -84,6 +88,7 @@ def run_desktop(
         grants=grants,
         secrets=selected_store,
         has_active_run=app.state.sessions.has_active_run,
+        import_workspace_history=app.state.sessions.import_workspace_history,
     )
     selected_controller_factory = controller_factory or _create_server_controller
     controller = selected_controller_factory(app)
@@ -104,6 +109,12 @@ def run_desktop(
     finally:
         controller.stop()
     return 0
+
+
+def desktop_history_root(home: Path | None = None) -> Path:
+    """Return the application-owned history directory on macOS."""
+    selected_home = home or Path.home()
+    return selected_home / "Library" / "Application Support" / "BlueWhale"
 
 
 def _create_server_controller(app: FastAPI) -> ServerController:

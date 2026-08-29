@@ -57,6 +57,25 @@ def test_select_workspace_returns_opaque_grant(tmp_path: Path) -> None:
     assert grants.resolve(str(result["grant_id"])) == project.resolve()
 
 
+def test_select_workspace_imports_local_history_after_grant(tmp_path: Path) -> None:
+    project = tmp_path / "demo"
+    project.mkdir()
+    imported: list[Path] = []
+    grants = WorkspaceGrantRegistry()
+    bridge = DesktopBridge(
+        picker=FakeFolderPicker(project),
+        grants=grants,
+        secrets=MemorySecretStore(),
+        has_active_run=lambda: False,
+        import_workspace_history=lambda path: imported.append(path),
+    )
+
+    result = bridge.select_workspace()
+
+    assert result["ok"] is True
+    assert imported == [project.resolve()]
+
+
 def test_cancel_keeps_current_workspace_and_active_run_blocks_switch(tmp_path: Path) -> None:
     project = tmp_path / "demo"
     project.mkdir()

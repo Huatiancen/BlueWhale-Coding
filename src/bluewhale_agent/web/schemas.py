@@ -42,6 +42,9 @@ class RunResponse(BaseModel):
     id: str
     task: str
     workspace: str
+    workspace_name: str
+    workspace_available: bool = True
+    historical: bool = False
     status: RunStatus
     stop_reason: StopReason | None = None
     verified: bool | None = None

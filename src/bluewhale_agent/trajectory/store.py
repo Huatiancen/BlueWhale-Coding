@@ -34,12 +34,19 @@ class StoredEvent(BaseModel):
 class TrajectoryStore:
     """Persist and replay one run's events as newline-delimited JSON."""
 
-    def __init__(self, workspace: Path, run_id: str) -> None:
+    def __init__(
+        self,
+        workspace: Path,
+        run_id: str,
+        *,
+        runs_root: Path | None = None,
+    ) -> None:
         if _RUN_ID.fullmatch(run_id) is None:
             raise ValueError(f"Invalid run id: {run_id!r}")
 
         self.run_id = run_id
-        self.run_dir = workspace.resolve() / ".bluewhale" / "runs" / run_id
+        selected_root = runs_root or workspace.resolve() / ".bluewhale" / "runs"
+        self.run_dir = selected_root.resolve(strict=False) / run_id
         self.events_path = self.run_dir / "events.jsonl"
         self._lock = Lock()
         self.run_dir.mkdir(parents=True, exist_ok=True)

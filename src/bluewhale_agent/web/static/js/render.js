@@ -10,7 +10,7 @@ export function renderWorkspace(elements, snapshot, callbacks) {
   renderSessions(elements, snapshot.runs, snapshot.activeRunId, callbacks.onSelectRun);
   renderRunHeader(elements, run);
   renderConversation(elements, run, events);
-  renderApprovalDock(elements, events, callbacks.onResolveApproval);
+  renderApprovalDock(elements, events, run, callbacks.onResolveApproval);
 }
 
 function renderConnection(elements, connectionState) {
@@ -39,9 +39,16 @@ function renderSessions(elements, runs, activeRunId, onSelectRun) {
     button.addEventListener("click", () => onSelectRun(run.id));
 
     const copy = element("span", "session-copy");
+    const workspaceLabel = run.workspace_available === false
+      ? "项目不可用"
+      : run.workspace_name;
     copy.append(
       element("strong", "", run.task),
-      element("small", "", statusLabel(run.status)),
+      element(
+        "small",
+        "",
+        [workspaceLabel, statusLabel(run.status)].filter(Boolean).join(" · "),
+      ),
     );
     const status = element("span", `status-dot ${run.status}`);
     status.setAttribute("aria-label", `状态：${statusLabel(run.status)}`);
@@ -62,7 +69,7 @@ function renderRunHeader(elements, run) {
   elements.runStatus.hidden = false;
   elements.runStatus.textContent = statusLabel(run.status);
   elements.runStatus.className = `run-status ${run.status}`;
-  const active = ACTIVE_STATUSES.has(run.status);
+  const active = !run.historical && ACTIVE_STATUSES.has(run.status);
   elements.stopButton.hidden = !active;
   elements.submitButton.hidden = active;
 }
@@ -100,8 +107,12 @@ function renderConversation(elements, run, events) {
   scroller.scrollTop = scroller.scrollHeight;
 }
 
-function renderApprovalDock(elements, events, onResolveApproval) {
+function renderApprovalDock(elements, events, run, onResolveApproval) {
   elements.approvalDock.replaceChildren();
+  if (run?.historical) {
+    elements.approvalDock.hidden = true;
+    return;
+  }
   const stored = findPendingApproval(events);
   elements.approvalDock.hidden = !stored;
   if (stored) elements.approvalDock.append(approvalCard(stored, onResolveApproval));
@@ -304,6 +315,7 @@ function statusLabel(status) {
 function stopReasonLabel(reason) {
   const labels = {
     user_stopped: "任务已停止",
+    app_interrupted: "应用退出，任务已中断",
     permission_denied: "操作未获授权",
     api_error: "模型服务暂时不可用",
     tool_error: "执行过程遇到错误",

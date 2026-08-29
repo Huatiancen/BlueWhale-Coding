@@ -9,6 +9,7 @@ from bluewhale_agent.config import Settings
 from bluewhale_agent.desktop.launcher import (
     DesktopLaunchError,
     _confirm_desktop_close,
+    desktop_history_root,
     run_desktop,
 )
 from bluewhale_agent.desktop.secrets import MemorySecretStore
@@ -76,7 +77,7 @@ def settings() -> Settings:
     )
 
 
-def test_run_desktop_orders_server_window_and_cleanup() -> None:
+def test_run_desktop_orders_server_window_and_cleanup(tmp_path: Path) -> None:
     events: list[str] = []
     webview = FakeWebView(events)
 
@@ -86,6 +87,7 @@ def test_run_desktop_orders_server_window_and_cleanup() -> None:
         settings=settings(),
         controller_factory=lambda app: FakeController(app, events),
         platform="darwin",
+        history_root=tmp_path / "history",
     )
 
     assert result == 0
@@ -98,7 +100,7 @@ def test_run_desktop_orders_server_window_and_cleanup() -> None:
     assert len(webview.window.events.closing.handlers) == 1
 
 
-def test_run_desktop_stops_server_when_webview_fails() -> None:
+def test_run_desktop_stops_server_when_webview_fails(tmp_path: Path) -> None:
     events: list[str] = []
     webview = FakeWebView(events)
 
@@ -114,6 +116,7 @@ def test_run_desktop_stops_server_when_webview_fails() -> None:
             settings=settings(),
             controller_factory=lambda app: FakeController(app, events),
             platform="darwin",
+            history_root=tmp_path / "history",
         )
 
     assert events[-1] == "server-stop"
@@ -127,6 +130,12 @@ def test_run_desktop_rejects_non_macos() -> None:
             settings=settings(),
             platform="linux",
         )
+
+
+def test_desktop_history_root_uses_macos_application_support(tmp_path: Path) -> None:
+    assert desktop_history_root(tmp_path) == (
+        tmp_path / "Library" / "Application Support" / "BlueWhale"
+    )
 
 
 def test_close_confirmation_is_only_shown_for_active_task() -> None:

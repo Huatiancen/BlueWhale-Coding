@@ -221,6 +221,87 @@ async def test_api_rejects_unknown_permission_mode(client: httpx.AsyncClient) ->
     assert response.status_code == 422
 
 
+@pytest.mark.asyncio
+async def test_local_history_survives_app_restart_and_replays_events(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    history_root = tmp_path / "application-history"
+    first_app = create_app(
+        workspace=workspace,
+        history_root=history_root,
+        provider_factory=lambda: FakeModelProvider(
+            [ModelResponse(content="Persisted answer.", finish_reason="stop")]
+        ),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=first_app), base_url="http://test"
+    ) as first_client:
+        created = await first_client.post(
+            "/api/runs",
+            json={"run_id": "persisted", "task": "Remember this task", "workspace": "."},
+        )
+        await wait_for_terminal(first_client, "persisted")
+
+    second_app = create_app(
+        workspace=workspace,
+        history_root=history_root,
+        provider_factory=lambda: FakeModelProvider([]),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=second_app), base_url="http://test"
+    ) as second_client:
+        listed = await second_client.get("/api/runs")
+        fetched = await second_client.get("/api/runs/persisted")
+        replayed = await second_client.get("/api/runs/persisted/events")
+
+    assert created.status_code == 202
+    assert [item["id"] for item in listed.json()] == ["persisted"]
+    assert fetched.json()["historical"] is True
+    assert fetched.json()["workspace_name"] == "workspace"
+    assert fetched.json()["workspace_available"] is True
+    assert fetched.json()["final_answer"] == "Persisted answer."
+    assert [event["event"] for event in parse_sse(replayed.text)][-1] == "run_finished"
+
+
+@pytest.mark.asyncio
+async def test_history_remains_readable_when_workspace_is_missing(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    history_root = tmp_path / "application-history"
+    first_app = create_app(
+        workspace=workspace,
+        history_root=history_root,
+        provider_factory=lambda: FakeModelProvider(
+            [ModelResponse(content="Saved.", finish_reason="stop")]
+        ),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=first_app), base_url="http://test"
+    ) as first_client:
+        await first_client.post(
+            "/api/runs",
+            json={"run_id": "missing-workspace", "task": "Persist", "workspace": "."},
+        )
+        await wait_for_terminal(first_client, "missing-workspace")
+    workspace.rmdir()
+
+    fallback_workspace = tmp_path / "fallback"
+    fallback_workspace.mkdir()
+    second_app = create_app(
+        workspace=fallback_workspace,
+        history_root=history_root,
+        provider_factory=lambda: FakeModelProvider([]),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=second_app), base_url="http://test"
+    ) as second_client:
+        fetched = await second_client.get("/api/runs/missing-workspace")
+
+    assert fetched.status_code == 200
+    assert fetched.json()["historical"] is True
+    assert fetched.json()["workspace_available"] is False
+
+
 async def wait_for_terminal(client: httpx.AsyncClient, run_id: str) -> dict[str, object]:
     for _ in range(100):
         response = await client.get(f"/api/runs/{run_id}")

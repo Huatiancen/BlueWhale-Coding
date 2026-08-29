@@ -26,6 +26,7 @@ class StopReason(StrEnum):
     COMPLETED = "completed"
     PARTIALLY_VERIFIED = "partially_verified"
     USER_STOPPED = "user_stopped"
+    APP_INTERRUPTED = "app_interrupted"
     STEP_LIMIT = "step_limit"
     TIME_LIMIT = "time_limit"
     NO_PROGRESS = "no_progress"
@@ -112,4 +113,3 @@ class ModelResponse(BaseModel):
     reasoning_content: str | None = None
     tool_calls: tuple[Action, ...] = ()
     finish_reason: str
-

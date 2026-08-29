@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Protocol
 
 from bluewhale_agent.desktop.grants import WorkspaceGrantError, WorkspaceGrantRegistry
@@ -56,11 +57,13 @@ class DesktopBridge:
         grants: WorkspaceGrantRegistry,
         secrets: SecretStore,
         has_active_run: Callable[[], bool],
+        import_workspace_history: Callable[[Path], object] | None = None,
     ) -> None:
         self._picker = picker
         self._grants = grants
         self._secrets = secrets
         self._has_active_run = has_active_run
+        self._import_workspace_history = import_workspace_history
 
     def select_workspace(self) -> dict[str, object]:
         if self._has_active_run():
@@ -75,6 +78,8 @@ class DesktopBridge:
             grant = self._grants.grant(selected)
         except WorkspaceGrantError:
             return {"ok": False, "error": "Unable to open the selected project"}
+        if self._import_workspace_history is not None:
+            self._import_workspace_history(grant.path)
         return {
             "ok": True,
             "cancelled": False,

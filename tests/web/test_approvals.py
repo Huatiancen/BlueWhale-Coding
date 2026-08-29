@@ -242,6 +242,7 @@ def test_gui_exposes_safe_approval_and_stop_controls() -> None:
     assert 'from "./event-view.js"' in render
     assert "onResolveApproval" in render
     assert "renderApprovalDock(elements, events" in render
+    assert "if (run?.historical)" in render
     assert "elements.approvalDock.replaceChildren()" in render
     assert "elements.conversation.append(approvalCard" not in render
     assert "elements.conversation.append(workDetails" in render

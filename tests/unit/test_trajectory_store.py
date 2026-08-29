@@ -93,6 +93,18 @@ def test_store_rejects_run_ids_that_escape_the_runtime_directory(tmp_path: Path)
         TrajectoryStore(tmp_path, "../escape")
 
 
+def test_store_can_use_an_application_owned_runs_root(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    runs_root = tmp_path / "application-history" / "runs"
+
+    store = TrajectoryStore(workspace, "run-global", runs_root=runs_root)
+
+    assert store.run_dir == runs_root / "run-global"
+    assert store.events_path == runs_root / "run-global" / "events.jsonl"
+    assert not (workspace / ".bluewhale").exists()
+
+
 def test_append_rejects_an_event_from_another_run(tmp_path: Path) -> None:
     store = TrajectoryStore(tmp_path, "run-1")
 
