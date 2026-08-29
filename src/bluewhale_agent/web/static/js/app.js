@@ -54,7 +54,7 @@ const elements = {
   runStatus: document.querySelector("#run-status"),
   conversation: document.querySelector("#conversation-panel"),
   conversationEmpty: document.querySelector("#conversation-empty"),
-  workDetails: document.querySelector("#work-details"),
+  approvalDock: document.querySelector("#approval-dock"),
   permissionTrigger: document.querySelector("#permission-trigger"),
   permissionLabel: document.querySelector("#permission-label"),
   permissionMenu: document.querySelector("#permission-menu"),

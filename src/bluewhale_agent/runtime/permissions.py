@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import os
 import re
-import shlex
 from enum import StrEnum
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
 from bluewhale_agent.domain.models import Action
+from bluewhale_agent.runtime.command_plan import CommandPlanError, parse_command_plan
 from bluewhale_agent.runtime.paths import PathAccessError, WorkspacePaths
 
 
@@ -97,54 +98,84 @@ class PermissionPolicy:
                 reason="Command must be a non-empty string",
             )
         try:
-            argv = shlex.split(command)
-        except ValueError as exc:
-            return PermissionResult(
-                decision=PermissionDecision.DENY,
-                reason=f"Command cannot be parsed: {exc}",
+            plan = parse_command_plan(command)
+        except CommandPlanError as exc:
+            decision = (
+                PermissionDecision.DENY
+                if self._mode is PermissionMode.FULL
+                else PermissionDecision.ASK
             )
-        if not argv:
-            return PermissionResult(
-                decision=PermissionDecision.DENY,
-                reason="Command must not be empty",
-            )
+            return PermissionResult(decision=decision, reason=str(exc))
 
+        results = [self._evaluate_argv(step.argv) for step in plan.steps]
+        severity = {
+            PermissionDecision.ALLOW: 0,
+            PermissionDecision.ASK: 1,
+            PermissionDecision.DENY: 2,
+        }
+        return max(results, key=lambda item: severity[item.decision])
+
+    def _evaluate_argv(self, argv: tuple[str, ...]) -> PermissionResult:
         executable = os.path.basename(argv[0]).lower()
         arguments = [item.lower() for item in argv[1:]]
         if _is_dangerous_command(executable, arguments):
             return PermissionResult(
                 decision=PermissionDecision.DENY,
-                reason="Command is blocked by the destructive-command policy",
+                reason=f"命令 {argv[0]} 被破坏性操作策略禁止",
             )
         if is_interactive_command(executable, arguments):
             return PermissionResult(
                 decision=PermissionDecision.DENY,
-                reason="Interactive commands are not supported",
+                reason=f"命令 {argv[0]} 需要交互式终端，当前不支持",
             )
         if self._mode is PermissionMode.ASK:
             return PermissionResult(
                 decision=PermissionDecision.ASK,
-                reason="Current permission mode requires approval for commands",
+                reason=f"当前权限模式要求确认命令 {argv[0]}",
             )
         if self._mode is PermissionMode.FULL:
             return PermissionResult(
                 decision=PermissionDecision.ALLOW,
-                reason="Non-destructive command is allowed by full access mode",
+                reason=f"完全访问权限允许非破坏性命令 {argv[0]}",
             )
         if _requires_command_approval(executable, arguments):
             return PermissionResult(
                 decision=PermissionDecision.ASK,
-                reason="Command requires explicit user approval",
+                reason=f"命令 {argv[0]} 涉及联网、安装、发布或 Git 写入，需要你确认",
             )
-        if _is_known_safe_command(executable, arguments):
+        if _is_known_safe_command(executable, arguments) and not self._is_trusted_executable(
+            argv[0]
+        ):
+            return PermissionResult(
+                decision=PermissionDecision.ASK,
+                reason=f"可执行路径 {argv[0]} 不在可信工具目录中，需要你确认",
+            )
+        if _is_known_safe_command(executable, arguments) and not _has_unsafe_path_argument(
+            arguments, self._paths
+        ):
             return PermissionResult(
                 decision=PermissionDecision.ALLOW,
-                reason="Recognized non-interactive development command",
+                reason=f"命令 {argv[0]} 已匹配可信开发工具规则",
             )
         return PermissionResult(
             decision=PermissionDecision.ASK,
-            reason="Unrecognized commands require explicit user approval",
+            reason=f"命令 {argv[0]} 未匹配可信开发工具规则，需要你确认",
         )
+
+    def _is_trusted_executable(self, executable: str) -> bool:
+        requested = Path(executable)
+        if len(requested.parts) == 1:
+            return True
+        if requested.is_absolute():
+            resolved = requested.resolve(strict=False)
+            return any(
+                resolved.is_relative_to(root)
+                for root in map(Path, ("/bin", "/usr/bin", "/usr/sbin", "/sbin"))
+            )
+        if self._paths is None:
+            return False
+        resolved = (self._paths.root / requested).resolve(strict=False)
+        return resolved.is_relative_to(self._paths.root / ".venv" / "bin")
 
 
 def is_interactive_command(executable: str, arguments: list[str]) -> bool:
@@ -153,7 +184,7 @@ def is_interactive_command(executable: str, arguments: list[str]) -> bool:
     is_repl = _is_python_executable(executable) or executable in {"node", "irb", "ghci"}
     if is_repl and not arguments:
         return True
-    return "-i" in arguments or "--interactive" in arguments
+    return is_repl and ("-i" in arguments or "--interactive" in arguments)
 
 
 def _is_dangerous_command(executable: str, arguments: list[str]) -> bool:
@@ -199,7 +230,36 @@ def _requires_command_approval(executable: str, arguments: list[str]) -> bool:
 
 
 def _is_known_safe_command(executable: str, arguments: list[str]) -> bool:
-    if executable in {"pytest", "ruff", "mypy", "tox", "nox"}:
+    if executable in {
+        "cat",
+        "diff",
+        "file",
+        "grep",
+        "head",
+        "ls",
+        "pwd",
+        "rg",
+        "stat",
+        "tail",
+        "wc",
+        "which",
+    }:
+        return True
+    if executable in {
+        "biome",
+        "black",
+        "eslint",
+        "isort",
+        "jest",
+        "mypy",
+        "nox",
+        "prettier",
+        "pytest",
+        "ruff",
+        "tox",
+        "tsc",
+        "vitest",
+    }:
         return True
     if executable == "git" and arguments:
         return arguments[0] in {
@@ -221,6 +281,24 @@ def _is_known_safe_command(executable: str, arguments: list[str]) -> bool:
         }
     if executable in {"cargo", "go"} and arguments:
         return arguments[0] in {"build", "check", "clippy", "fmt", "test", "vet"}
+    if executable == "swift" and arguments:
+        return arguments[0] in {"build", "test"}
+    if executable in {"cc", "c++", "gcc", "g++", "clang", "clang++"}:
+        return not _compiler_uses_plugin(arguments)
+    if executable in {
+        "clang-format",
+        "clang-tidy",
+        "cmake",
+        "ctest",
+        "gofmt",
+        "java",
+        "javac",
+        "ninja",
+        "rustc",
+        "rustfmt",
+        "swiftc",
+    }:
+        return True
     if executable in {"npm", "pnpm", "yarn"} and arguments:
         return arguments[0] in {"build", "lint", "test", "typecheck"} or (
             arguments[0] == "run"
@@ -234,3 +312,33 @@ def _is_known_safe_command(executable: str, arguments: list[str]) -> bool:
 
 def _is_python_executable(executable: str) -> bool:
     return re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", executable) is not None
+
+
+def _compiler_uses_plugin(arguments: list[str]) -> bool:
+    if any(item.startswith(("-fplugin", "-fpass-plugin")) for item in arguments):
+        return True
+    return any(
+        arguments[index : index + 2] == ["-xclang", "-load"]
+        for index in range(len(arguments) - 1)
+    )
+
+
+def _has_unsafe_path_argument(
+    arguments: list[str], paths: WorkspacePaths | None
+) -> bool:
+    for argument in arguments:
+        candidates = [argument]
+        if "=" in argument:
+            candidates.append(argument.split("=", 1)[1])
+        for prefix in ("-i", "-l", "-o"):
+            if argument.startswith(prefix) and len(argument) > len(prefix):
+                candidates.append(argument[len(prefix) :])
+        for candidate in candidates:
+            if candidate.startswith(("/", "~")) or ".." in Path(candidate).parts:
+                return True
+            if paths is not None and candidate and not candidate.startswith("-"):
+                try:
+                    paths.resolve(candidate, must_exist=False)
+                except PathAccessError:
+                    return True
+    return False

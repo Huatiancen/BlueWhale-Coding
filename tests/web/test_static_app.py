@@ -28,7 +28,10 @@ async def test_root_serves_accessible_conversation_workspace(tmp_path: Path) -> 
     assert 'id="conversation-panel"' in html
     assert 'id="conversation-shell"' in html
     assert 'id="composer-shell"' in html
-    assert 'id="work-details"' in html
+    assert 'id="approval-dock"' in html
+    composer = html[html.index('id="composer-shell"') :]
+    assert composer.index('id="approval-dock"') < composer.index('id="task-form"')
+    assert 'id="work-details"' not in html
     assert 'id="activity-timeline"' not in html
     assert 'id="changes-panel"' not in html
     assert 'id="evidence-panel"' not in html
@@ -80,6 +83,9 @@ def test_styles_define_bluewhale_palette_and_responsive_layout() -> None:
     assert "--danger" in css
     assert ".conversation-shell" in css
     assert ".composer-shell" in css
+    assert ".approval-dock" in css
+    assert ".approval-dock[hidden]" in css
+    assert ".conversation-feed > .work-details" in css
     assert "max-width: 860px" in css
     assert "@media" in css
     assert "prefers-reduced-motion" in css
@@ -97,6 +103,7 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
         "api.js",
         "app.js",
         "desktop.js",
+        "event-view.js",
         "markdown.js",
         "render.js",
         "store.js",

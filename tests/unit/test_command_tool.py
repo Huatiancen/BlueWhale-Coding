@@ -58,6 +58,53 @@ async def test_run_command_maps_nonzero_exit_to_error(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_command_honors_success_and_failure_conditions(tmp_path: Path) -> None:
+    command = " ".join(
+        [
+            python_command("import sys; sys.exit(1)"),
+            "&&",
+            python_command("print('skipped')"),
+            "||",
+            python_command("print('recovered')"),
+            ";",
+            python_command("print('always')"),
+        ]
+    )
+
+    result = await RunCommandTool().invoke({"command": command}, make_context(tmp_path))
+
+    assert result.status is ObservationStatus.SUCCESS
+    assert "recovered" in result.content
+    assert "always" in result.content
+    assert "skipped" not in result.content
+    assert "步骤 1" in result.content
+    assert "步骤 3" in result.content
+    steps = result.metadata["steps"]
+    assert isinstance(steps, list)
+    assert [step["skipped"] for step in steps] == [False, True, False, False]
+    assert [step["exit_code"] for step in steps] == [1, None, 0, 0]
+
+
+@pytest.mark.asyncio
+async def test_compound_command_uses_one_total_timeout_budget(tmp_path: Path) -> None:
+    command = " ; ".join(
+        [
+            python_command("import time; time.sleep(10)"),
+            python_command("from pathlib import Path; Path('late').write_text('bad')"),
+        ]
+    )
+
+    result = await RunCommandTool().invoke(
+        {"command": command, "timeout_seconds": 0.1}, make_context(tmp_path)
+    )
+
+    assert result.status is ObservationStatus.TIMEOUT
+    assert result.metadata["timed_out"] is True
+    assert not (tmp_path / "late").exists()
+    assert len(result.metadata["steps"]) == 1
+
+
+@pytest.mark.asyncio
 async def test_run_command_timeout_terminates_process(tmp_path: Path) -> None:
     source = (
         "import os, pathlib, time; "
@@ -267,6 +314,127 @@ def test_command_permission_modes(
     assert result.decision is expected
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pwd",
+        "ls -la",
+        "cat README.md",
+        "head -n 5 README.md",
+        "tail -n 5 README.md",
+        "wc -l README.md",
+        "file README.md",
+        "which python",
+        "stat README.md",
+        "rg TODO src",
+        "grep -n TODO README.md",
+        "diff before.txt after.txt",
+        "black --check src",
+        "isort --check-only src",
+        "eslint src",
+        "prettier --check .",
+        "tsc --noEmit",
+        "biome check src",
+        "vitest run",
+        "jest --runInBand",
+        "g++ -std=c++17 main.cpp -o main",
+        "clang++ -Wall main.cpp -o main",
+        "gcc main.c -o main",
+        "cmake --build build",
+        "ctest --test-dir build",
+        "ninja -C build",
+        "make test",
+        "clang-format --dry-run main.cpp",
+        "clang-tidy main.cpp",
+        "javac Main.java",
+        "java Main",
+        "go test ./...",
+        "gofmt -d .",
+        "cargo clippy",
+        "rustc main.rs",
+        "rustfmt --check main.rs",
+        "swift test",
+        "swiftc main.swift",
+    ],
+)
+def test_balanced_allows_common_development_commands(command: str) -> None:
+    result = PermissionPolicy(mode=PermissionMode.BALANCED).evaluate(
+        Action(id="common", tool_name="run_command", arguments={"command": command})
+    )
+
+    assert result.decision is PermissionDecision.ALLOW
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gcc -fplugin=evil.so main.c",
+        "clang -Xclang -load -Xclang evil.so main.c",
+        "find . -delete",
+        "find . -exec echo {} ;",
+        "sed -i backup README.md",
+        "curl https://example.com",
+        "npm publish",
+        "git commit -m test",
+        "./main",
+        "/tmp/custom-tool",
+        "cat /etc/passwd",
+        "head ../outside.txt",
+        "ls /tmp",
+        "rg secret /etc",
+    ],
+)
+def test_balanced_asks_for_risky_or_untrusted_commands(command: str) -> None:
+    result = PermissionPolicy(mode=PermissionMode.BALANCED).evaluate(
+        Action(id="risky", tool_name="run_command", arguments={"command": command})
+    )
+
+    assert result.decision is PermissionDecision.ASK
+
+
+def test_compound_permission_uses_the_strictest_step() -> None:
+    result = PermissionPolicy(mode=PermissionMode.BALANCED).evaluate(
+        Action(
+            id="compound",
+            tool_name="run_command",
+            arguments={"command": "g++ main.cpp -o main && ./main"},
+        )
+    )
+
+    assert result.decision is PermissionDecision.ASK
+    assert "./main" in result.reason
+
+
+def test_balanced_does_not_trust_safe_basename_from_untrusted_absolute_path() -> None:
+    result = PermissionPolicy(mode=PermissionMode.BALANCED).evaluate(
+        Action(
+            id="spoofed",
+            tool_name="run_command",
+            arguments={"command": "/tmp/g++ main.cpp -o main"},
+        )
+    )
+
+    assert result.decision is PermissionDecision.ASK
+    assert "/tmp/g++" in result.reason
+
+
+def test_balanced_rejects_read_command_through_workspace_symlink(tmp_path: Path) -> None:
+    outside = tmp_path.parent / "outside-command-secret.txt"
+    outside.write_text("secret", encoding="utf-8")
+    (tmp_path / "linked.txt").symlink_to(outside)
+    policy = PermissionPolicy(paths=WorkspacePaths(tmp_path), mode=PermissionMode.BALANCED)
+
+    result = policy.evaluate(
+        Action(
+            id="symlink-read",
+            tool_name="run_command",
+            arguments={"command": "cat linked.txt"},
+        )
+    )
+
+    assert result.decision is PermissionDecision.ASK
+
+
 @pytest.mark.asyncio
 async def test_registry_rejects_model_supplied_cwd(tmp_path: Path) -> None:
     context = make_context(tmp_path)
@@ -297,7 +465,9 @@ async def test_registry_preserves_nonzero_command_status(tmp_path: Path) -> None
     registry = ToolRegistry(
         tools=[RunCommandTool()],
         context=context,
-        permission_policy=PermissionPolicy(paths=context.paths),
+        permission_policy=PermissionPolicy(
+            paths=context.paths, mode=PermissionMode.FULL
+        ),
     )
 
     result = await registry.dispatch(

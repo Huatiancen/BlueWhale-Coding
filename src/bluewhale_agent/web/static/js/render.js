@@ -1,3 +1,4 @@
+import { findPendingApproval } from "./event-view.js";
 import { renderMarkdown } from "./markdown.js";
 
 const ACTIVE_STATUSES = new Set(["initializing", "running", "waiting_approval", "verifying"]);
@@ -8,8 +9,8 @@ export function renderWorkspace(elements, snapshot, callbacks) {
   renderConnection(elements, snapshot.connectionState);
   renderSessions(elements, snapshot.runs, snapshot.activeRunId, callbacks.onSelectRun);
   renderRunHeader(elements, run);
-  renderConversation(elements, run, events, callbacks.onResolveApproval);
-  renderWorkDetails(elements, events);
+  renderConversation(elements, run, events);
+  renderApprovalDock(elements, events, callbacks.onResolveApproval);
 }
 
 function renderConnection(elements, connectionState) {
@@ -66,7 +67,7 @@ function renderRunHeader(elements, run) {
   elements.submitButton.hidden = active;
 }
 
-function renderConversation(elements, run, events, onResolveApproval) {
+function renderConversation(elements, run, events) {
   elements.conversation.replaceChildren();
   elements.conversationEmpty.hidden = Boolean(run);
   if (!run) return;
@@ -74,6 +75,9 @@ function renderConversation(elements, run, events, onResolveApproval) {
   const userMessage = element("article", "message user-message");
   userMessage.append(element("p", "", run.task));
   elements.conversation.append(userMessage);
+
+  const workDetails = createWorkDetails(run, events);
+  if (workDetails) elements.conversation.append(workDetails);
 
   for (const stored of events) {
     const { kind, payload } = stored.event;
@@ -83,8 +87,6 @@ function renderConversation(elements, run, events, onResolveApproval) {
       markdown.classList.add("message-copy");
       message.append(avatar(), markdown);
       elements.conversation.append(message);
-    } else if (kind === "approval_requested") {
-      elements.conversation.append(approvalCard(stored, events, onResolveApproval));
     } else if (
       kind === "observation_received" &&
       payload.observation?.status !== "success"
@@ -98,28 +100,30 @@ function renderConversation(elements, run, events, onResolveApproval) {
   scroller.scrollTop = scroller.scrollHeight;
 }
 
+function renderApprovalDock(elements, events, onResolveApproval) {
+  elements.approvalDock.replaceChildren();
+  const stored = findPendingApproval(events);
+  elements.approvalDock.hidden = !stored;
+  if (stored) elements.approvalDock.append(approvalCard(stored, onResolveApproval));
+}
+
 function avatar() {
   const node = element("span", "assistant-avatar", "B");
   node.setAttribute("aria-hidden", "true");
   return node;
 }
 
-function approvalCard(stored, events, onResolveApproval) {
+function approvalCard(stored, onResolveApproval) {
   const approval = stored.event.payload.approval;
-  const resolution = events
-    .filter((candidate) => candidate.event.kind === "approval_resolved")
-    .find((candidate) => candidate.event.payload.approval?.id === approval.id);
-  const status = resolution?.event.payload.approval?.status || approval.status;
-  const pending = status === "pending";
-  const card = element("article", `approval-card ${status}`);
+  const card = element("article", "approval-card pending");
   const heading = element("div", "approval-heading");
   heading.append(
     element("span", "approval-icon", "!"),
-    element("div", "approval-title", `允许 ${humanToolLabel(approval.action.tool_name)}？`),
-    element("span", "approval-status", approvalStatus(status)),
+    element("div", "approval-title", `允许 ${humanToolLabel(approval.action?.tool_name)}？`),
+    element("span", "approval-status", approvalStatus("pending")),
   );
   card.append(heading, element("p", "approval-reason", approval.reason));
-  if (approval.impact_paths.length) {
+  if (approval.impact_paths?.length) {
     card.append(element("p", "approval-impact", `将影响：${approval.impact_paths.join("、")}`));
   }
   const technical = document.createElement("details");
@@ -133,8 +137,6 @@ function approvalCard(stored, events, onResolveApproval) {
   const actions = element("div", "approval-actions");
   const deny = approvalButton("拒绝", "secondary", "deny");
   const approve = approvalButton("允许一次", "primary", "approve");
-  deny.disabled = !pending;
-  approve.disabled = !pending;
 
   async function decide(decision) {
     deny.disabled = true;
@@ -184,17 +186,16 @@ function resultStrip(payload, events) {
   return strip;
 }
 
-function renderWorkDetails(elements, events) {
-  elements.workDetails.replaceChildren();
+function createWorkDetails(run, events) {
   const actions = events.filter((stored) => stored.event.kind === "action_requested");
   const verification = events.findLast(
     (stored) => stored.event.kind === "verification_finished",
   );
   if (!actions.length && !verification) {
-    elements.workDetails.hidden = true;
-    return;
+    return null;
   }
-  elements.workDetails.hidden = false;
+  const section = element("section", "work-details");
+  section.setAttribute("aria-label", "工作过程");
   const observations = new Map(
     events
       .filter((stored) => stored.event.kind === "observation_received")
@@ -202,6 +203,7 @@ function renderWorkDetails(elements, events) {
   );
   const wrapper = document.createElement("details");
   wrapper.className = "work-disclosure";
+  wrapper.open = ACTIVE_STATUSES.has(run.status);
   wrapper.append(workSummary(actions, events, verification));
   const list = element("ol", "work-list");
   for (const stored of actions) {
@@ -209,7 +211,8 @@ function renderWorkDetails(elements, events) {
   }
   if (verification) list.append(verificationStep(verification));
   wrapper.append(list);
-  elements.workDetails.append(wrapper);
+  section.append(wrapper);
+  return section;
 }
 
 function workSummary(actions, events, verification) {

@@ -20,6 +20,7 @@ from bluewhale_agent.domain.models import (
 )
 from bluewhale_agent.evidence.ledger import EvidenceKind
 from bluewhale_agent.providers.base import ModelProtocolError
+from bluewhale_agent.runtime.permissions import PermissionMode, PermissionResult
 from tests.fakes import FakeModelProvider
 
 
@@ -293,6 +294,66 @@ async def test_pre_cancelled_run_finishes_without_calling_model(tmp_path: Path) 
     assert result.stop_reason is StopReason.USER_STOPPED
     assert provider.calls == []
     assert result.trajectory.events_after(0)[-1].event.kind is EventKind.RUN_FINISHED
+
+
+@pytest.mark.asyncio
+async def test_compiler_chain_requests_one_approval_then_runs_each_step(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tool_bin = tmp_path / "tool-bin"
+    tool_bin.mkdir()
+    compiler = tool_bin / "g++"
+    compiler.write_text(
+        "\n".join(
+            [
+                f"#!{sys.executable}",
+                "from pathlib import Path",
+                "target = Path('main')",
+                f"target.write_text(\"#!{sys.executable}\\nprint('compiled program ran')\\n\")",
+                "target.chmod(0o755)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    compiler.chmod(0o755)
+    (tmp_path / "main.cpp").write_text("int main() {}\n", encoding="utf-8")
+    monkeypatch.setenv("PATH", str(tool_bin) + os.pathsep + os.environ.get("PATH", ""))
+    requested: list[PermissionResult] = []
+
+    async def approve(_action: Action, permission: PermissionResult) -> bool:
+        requested.append(permission)
+        return True
+
+    provider = FakeModelProvider(
+        [
+            response(
+                actions=(
+                    action(
+                        "compile-run",
+                        "run_command",
+                        command="g++ main.cpp -o main && ./main",
+                    ),
+                )
+            ),
+            response(content="Compiled and ran the program."),
+        ]
+    )
+
+    result = await AgentLoop(
+        run_id="compile-chain",
+        workspace=tmp_path,
+        provider=provider,
+        permission_mode=PermissionMode.BALANCED,
+        approval_handler=approve,
+    ).run("Compile and run main.cpp")
+
+    assert result.status is RunStatus.COMPLETED
+    assert len(requested) == 1
+    assert "./main" in requested[0].reason
+    observation = result.observations[0]
+    assert observation.status is ObservationStatus.SUCCESS
+    assert "compiled program ran" in observation.content
+    assert len(observation.metadata["steps"]) == 2
 
 
 def configure_python_path(monkeypatch: pytest.MonkeyPatch) -> None:
