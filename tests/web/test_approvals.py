@@ -265,7 +265,7 @@ def test_gui_exposes_safe_approval_and_stop_controls() -> None:
     assert "if (run?.historical)" in render
     assert "elements.approvalDock.replaceChildren()" in render
     assert "elements.conversation.append(approvalCard" not in render
-    assert "elements.conversation.append(workDetails" in render
+    assert "elements.conversation.append(createWorkDetails(entry))" in render
     assert "approval-card" in render
     assert "approval-actions" in render
     assert "impact_paths" in render

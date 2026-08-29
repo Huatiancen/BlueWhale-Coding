@@ -278,8 +278,8 @@ async def test_run_command_rejects_interactive_program(tmp_path: Path) -> None:
         ("npm install", PermissionDecision.ASK),
         ("git commit -m test", PermissionDecision.ASK),
         ("git push origin main", PermissionDecision.ASK),
-        ("rm -rf /", PermissionDecision.DENY),
-        ("sudo pytest", PermissionDecision.DENY),
+        ("rm -rf /", PermissionDecision.ASK),
+        ("sudo pytest", PermissionDecision.ASK),
         ("bash", PermissionDecision.DENY),
         ("python3.13", PermissionDecision.DENY),
         ("python3.13 -m pytest", PermissionDecision.ALLOW),
@@ -299,9 +299,9 @@ def test_command_permission_classification(command: str, expected: PermissionDec
         (PermissionMode.ASK, "pytest -q", PermissionDecision.ASK),
         (PermissionMode.FULL, "custom-build --release", PermissionDecision.ALLOW),
         (PermissionMode.FULL, "curl https://example.com", PermissionDecision.ALLOW),
-        (PermissionMode.ASK, "rm -rf build", PermissionDecision.DENY),
+        (PermissionMode.ASK, "rm -rf build", PermissionDecision.ASK),
         (PermissionMode.BALANCED, "bash", PermissionDecision.DENY),
-        (PermissionMode.FULL, "git reset --hard", PermissionDecision.DENY),
+        (PermissionMode.FULL, "git reset --hard", PermissionDecision.ASK),
     ],
 )
 def test_command_permission_modes(

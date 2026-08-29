@@ -18,9 +18,11 @@ test("builds interleaved user and assistant messages from every run", () => {
     conversationTimeline(run, events).map(({ kind, content }) => ({ kind, content })),
     [
       { kind: "user", content: "最初的问题" },
+      { kind: "work", content: undefined },
       { kind: "assistant", content: "第一轮回答" },
       { kind: "result", content: undefined },
       { kind: "user", content: "继续追问" },
+      { kind: "work", content: undefined },
       { kind: "assistant", content: "第二轮回答" },
       { kind: "result", content: undefined },
     ],
@@ -35,7 +37,8 @@ test("falls back to the run title for imported history without run_started", () 
 
   assert.equal(timeline[0].kind, "user");
   assert.equal(timeline[0].content, "导入的旧任务");
-  assert.equal(timeline[1].kind, "assistant");
+  assert.equal(timeline[1].kind, "work");
+  assert.equal(timeline[2].kind, "assistant");
 });
 
 test("keeps failed observations at their original timeline position", () => {
@@ -49,8 +52,8 @@ test("keeps failed observations at their original timeline position", () => {
     ],
   );
 
-  assert.equal(timeline[1].kind, "error");
-  assert.equal(timeline[1].observation.summary, "命令失败");
+  assert.equal(timeline[2].kind, "error");
+  assert.equal(timeline[2].observation.summary, "命令失败");
 });
 
 test("places a persisted changeset in the turn that produced it", () => {
@@ -64,8 +67,8 @@ test("places a persisted changeset in the turn that produced it", () => {
     ],
   );
 
-  assert.equal(timeline[1].kind, "changeset");
-  assert.equal(timeline[1].payload.files[0].path, "src/app.py");
+  assert.equal(timeline[2].kind, "changeset");
+  assert.equal(timeline[2].payload.files[0].path, "src/app.py");
   assert.equal(timeline.some((entry) => entry.kind === "result"), false);
 });
 
@@ -84,9 +87,34 @@ test("builds a source-only fallback card for older mutation history", () => {
     ],
   );
 
-  assert.equal(timeline[1].kind, "changeset");
-  assert.equal(timeline[1].payload.legacy, true);
-  assert.equal(timeline[1].payload.files[0].path, "old.py");
+  assert.equal(timeline[2].kind, "changeset");
+  assert.equal(timeline[2].payload.legacy, true);
+  assert.equal(timeline[2].payload.files[0].path, "old.py");
+});
+
+test("keeps work events isolated inside their own conversation turn", () => {
+  const timeline = conversationTimeline(
+    { task: "第一轮" },
+    [
+      stored(1, "run_started", { task: "第一轮" }),
+      stored(2, "action_requested", { action: { id: "read", tool_name: "read_file" } }),
+      stored(3, "run_finished", { status: "completed" }),
+      stored(4, "run_started", { task: "第二轮" }),
+      stored(5, "action_requested", { action: { id: "run", tool_name: "run_command" } }),
+      stored(6, "run_finished", { status: "completed" }),
+    ],
+  );
+  const work = timeline.filter((entry) => entry.kind === "work");
+
+  assert.equal(work.length, 2);
+  assert.deepEqual(
+    work.map((entry) =>
+      entry.events
+        .filter((event) => event.event.kind === "action_requested")
+        .map((event) => event.event.payload.action.tool_name),
+    ),
+    [["read_file"], ["run_command"]],
+  );
 });
 
 function stored(sequence, kind, payload) {

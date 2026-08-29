@@ -101,6 +101,9 @@ def test_styles_define_bluewhale_palette_and_responsive_layout() -> None:
     assert ".composer-shell" in css
     assert ".approval-dock" in css
     assert ".approval-dock[hidden]" in css
+    assert ".approval-card::before" in css
+    assert ".approval-command-preview" in css
+    assert ".approval-risk-label" in css
     assert ".conversation-feed > .work-details" in css
     assert ".project-group" in css
     assert ".history-project-button" in css
@@ -117,6 +120,8 @@ def test_styles_define_bluewhale_palette_and_responsive_layout() -> None:
     assert ".diff-line.deletion" in css
     assert ".diff-line.hunk" in css
     assert ".diff-line-number" in css
+    assert ".turn-work" in css
+    assert ".work-duration" in css
     assert "max-width: 1040px" in css
     assert "@media" in css
     assert "prefers-reduced-motion" in css
@@ -154,6 +159,7 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
         "store.js",
         "stream-guard.js",
         "stream-lifecycle.js",
+        "turn-timing.js",
     }
     assert "innerHTML" not in combined
     assert "insertAdjacentHTML" not in combined
@@ -174,6 +180,7 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "elements.conversationHeader.hidden = !run" not in scripts["render.js"]
     assert "recent-project-card" not in scripts["render.js"]
     assert "conversationTimeline" in scripts["render.js"]
+    assert 'from "./turn-timing.js"' in scripts["render.js"]
     assert "groupRunsByProject" in scripts["render.js"]
     assert "history-project-button" in scripts["render.js"]
     assert "project-task-list" in scripts["render.js"]

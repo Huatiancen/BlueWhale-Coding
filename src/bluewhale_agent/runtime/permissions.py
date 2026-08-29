@@ -120,8 +120,8 @@ class PermissionPolicy:
         arguments = [item.lower() for item in argv[1:]]
         if _is_dangerous_command(executable, arguments):
             return PermissionResult(
-                decision=PermissionDecision.DENY,
-                reason=f"命令 {argv[0]} 被破坏性操作策略禁止",
+                decision=PermissionDecision.ASK,
+                reason=f"命令 {argv[0]} 可能执行破坏性或高权限操作，需要你明确确认",
             )
         if is_interactive_command(executable, arguments):
             return PermissionResult(

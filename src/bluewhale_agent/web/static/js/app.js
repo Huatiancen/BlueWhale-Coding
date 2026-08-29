@@ -24,6 +24,7 @@ import { setupPanelResizer } from "./panel-resize.js";
 import { renderWorkspace } from "./render.js";
 import { createStreamGuard } from "./stream-guard.js";
 import { shouldCloseRunStream } from "./stream-lifecycle.js";
+import { refreshActiveTurnDurations } from "./turn-timing.js";
 import {
   addEvent,
   selectRun,
@@ -157,6 +158,7 @@ document.addEventListener("click", closePermissionMenuFromOutside);
 document.addEventListener("keydown", closePermissionMenuWithEscape);
 
 await boot();
+window.setInterval(() => refreshActiveTurnDurations(document), 1000);
 
 async function boot() {
   setConnectionState("connecting");

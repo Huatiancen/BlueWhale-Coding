@@ -3,6 +3,7 @@ import { findPendingApproval } from "./event-view.js";
 import { renderMarkdown } from "./markdown.js";
 import { createMessageCopyButton } from "./message-copy.js";
 import { groupRunsByProject } from "./project-groups.js";
+import { formatTurnDuration, turnDurationMs } from "./turn-timing.js";
 
 const ACTIVE_STATUSES = new Set(["initializing", "running", "waiting_approval", "verifying"]);
 
@@ -130,9 +131,6 @@ function renderConversation(elements, run, events, onCopyError, onSelectArtifact
   elements.conversationEmpty.hidden = Boolean(run);
   if (!run) return;
 
-  const workDetails = createWorkDetails(run, events);
-  if (workDetails) elements.conversation.append(workDetails);
-
   for (const entry of conversationTimeline(run, events)) {
     if (entry.kind === "user") {
       const message = element("article", "message user-message");
@@ -141,6 +139,8 @@ function renderConversation(elements, run, events, onCopyError, onSelectArtifact
         createMessageCopyButton(entry.content, { onError: onCopyError }),
       );
       elements.conversation.append(message);
+    } else if (entry.kind === "work") {
+      elements.conversation.append(createWorkDetails(entry));
     } else if (entry.kind === "assistant") {
       const message = element("article", "message assistant-message");
       const markdown = renderMarkdown(entry.content);
@@ -157,7 +157,7 @@ function renderConversation(elements, run, events, onCopyError, onSelectArtifact
       elements.conversation.append(changeSetCard(entry.payload, onSelectArtifact));
     } else if (entry.kind === "result") {
       elements.conversation.append(
-        resultStrip(entry.payload, events.slice(0, entry.eventIndex + 1)),
+        resultStrip(entry.payload, entry.events || []),
       );
     }
   }
@@ -237,13 +237,20 @@ function approvalCard(stored, onResolveApproval) {
   const heading = element("div", "approval-heading");
   heading.append(
     element("span", "approval-icon", "!"),
-    element("div", "approval-title", `允许 ${humanToolLabel(approval.action?.tool_name)}？`),
-    element("span", "approval-status", approvalStatus("pending")),
+    element("div", "approval-title", `允许${humanToolLabel(approval.action?.tool_name)}？`),
   );
-  card.append(heading, element("p", "approval-reason", approval.reason));
-  if (approval.impact_paths?.length) {
-    card.append(element("p", "approval-impact", `将影响：${approval.impact_paths.join("、")}`));
+  card.append(heading);
+  const context = element("div", "approval-context");
+  context.append(element("span", "approval-risk-label", "需要你的确认"));
+  const command = approval.action?.arguments?.command;
+  if (typeof command === "string" && command.trim()) {
+    context.append(element("code", "approval-command-preview", command.trim()));
   }
+  context.append(element("p", "approval-reason", approval.reason));
+  if (approval.impact_paths?.length) {
+    context.append(element("p", "approval-impact", `将影响：${approval.impact_paths.join("、")}`));
+  }
+  card.append(context);
   const technical = document.createElement("details");
   technical.className = "technical-details";
   technical.append(
@@ -304,15 +311,13 @@ function resultStrip(payload, events) {
   return strip;
 }
 
-function createWorkDetails(run, events) {
+function createWorkDetails(work) {
+  const events = work.events || [];
   const actions = events.filter((stored) => stored.event.kind === "action_requested");
   const verification = events.findLast(
     (stored) => stored.event.kind === "verification_finished",
   );
-  if (!actions.length && !verification) {
-    return null;
-  }
-  const section = element("section", "work-details");
+  const section = element("section", "turn-work work-details");
   section.setAttribute("aria-label", "工作过程");
   const observations = new Map(
     events
@@ -321,28 +326,32 @@ function createWorkDetails(run, events) {
   );
   const wrapper = document.createElement("details");
   wrapper.className = "work-disclosure";
-  wrapper.open = ACTIVE_STATUSES.has(run.status);
-  wrapper.append(workSummary(actions, events, verification));
+  wrapper.append(workSummary(work));
   const list = element("ol", "work-list");
   for (const stored of actions) {
     list.append(workStep(stored, observations.get(stored.event.payload.action?.id)));
   }
   if (verification) list.append(verificationStep(verification));
+  if (!actions.length && !verification) {
+    list.append(element("li", "work-empty", "本轮未调用本地工具"));
+  }
   wrapper.append(list);
   section.append(wrapper);
   return section;
 }
 
-function workSummary(actions, events, verification) {
+function workSummary(work) {
   const summary = element("summary", "work-summary");
-  const pieces = [`${actions.length} 步`];
-  const files = changedFileCount(events);
-  if (files) pieces.push(`${files} 个文件`);
-  if (verification) pieces.push(verification.event.payload.outcome?.passed ? "验证通过" : "验证未通过");
+  const duration = element(
+    "span",
+    "work-duration",
+    formatTurnDuration(turnDurationMs(work), work.active),
+  );
+  duration.dataset.active = String(work.active);
+  duration.dataset.startedAt = work.startedAt || "";
   summary.append(
-    element("span", "disclosure-chevron", "›"),
-    element("strong", "", "工作过程"),
-    element("span", "work-summary-meta", pieces.join(" · ")),
+    duration,
+    element("span", "disclosure-chevron", "⌄"),
   );
   return summary;
 }
