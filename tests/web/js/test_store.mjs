@@ -41,3 +41,20 @@ test("removes collapsed keys when a project disappears", () => {
 
   assert.deepEqual([...state.collapsedProjects], []);
 });
+
+test("loading history keeps the homepage selected", () => {
+  selectRun(null);
+
+  setRuns(runs);
+
+  assert.equal(state.activeRunId, null);
+});
+
+test("refreshing history preserves an explicitly selected task", () => {
+  setRuns(runs);
+  selectRun("a");
+
+  setRuns(runs);
+
+  assert.equal(state.activeRunId, "a");
+});

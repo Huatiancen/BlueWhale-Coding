@@ -147,6 +147,14 @@ async def test_search_modify_and_verify_uses_local_tools(
     ) == "def value():\n    return 2\n"
     assert [item.tool_name for item in result.actions[:2]] == ["search_text", "apply_patch"]
     assert any(item.kind is EvidenceKind.TEST_RESULT for item in result.evidence_report.evidence)
+    events = result.trajectory.events_after(0)
+    changes = next(
+        stored for stored in events if stored.event.kind is EventKind.CHANGESET_RECORDED
+    )
+    assert changes.event.payload["additions"] == 1
+    assert changes.event.payload["deletions"] == 1
+    assert changes.event.payload["files"][0]["path"] == "calculator.py"
+    assert events.index(changes) < len(events) - 1
 
 
 @pytest.mark.asyncio

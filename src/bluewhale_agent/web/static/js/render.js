@@ -19,8 +19,34 @@ export function renderWorkspace(elements, snapshot, callbacks) {
     callbacks.onToggleProject,
   );
   renderRunHeader(elements, run);
-  renderConversation(elements, run, events, callbacks.onCopyError);
+  renderHome(elements, snapshot.runs, callbacks.onSelectRun);
+  renderConversation(
+    elements,
+    run,
+    events,
+    callbacks.onCopyError,
+    callbacks.onSelectArtifact,
+  );
   renderApprovalDock(elements, events, run, callbacks.onResolveApproval);
+}
+
+function renderHome(elements, runs, onSelectRun) {
+  if (!elements.homeRecentProjects) return;
+  elements.homeRecentProjects.replaceChildren();
+  for (const project of groupRunsByProject(runs).slice(0, 4)) {
+    const latest = project.runs.at(-1);
+    const button = element("button", "recent-project-card");
+    button.type = "button";
+    button.append(
+      folderIcon(),
+      element("span", "recent-project-name", project.name),
+      element("small", "", `${project.runs.length} 个任务`),
+    );
+    button.addEventListener("click", () => onSelectRun(latest.id));
+    elements.homeRecentProjects.append(button);
+  }
+  const section = elements.homeRecentProjects.closest(".recent-projects");
+  if (section) section.hidden = runs.length === 0;
 }
 
 function renderConnection(elements, connectionState) {
@@ -118,7 +144,7 @@ function renderRunHeader(elements, run) {
   elements.submitButton.hidden = active;
 }
 
-function renderConversation(elements, run, events, onCopyError) {
+function renderConversation(elements, run, events, onCopyError, onSelectArtifact) {
   elements.conversation.replaceChildren();
   elements.conversationEmpty.hidden = Boolean(run);
   if (!run) return;
@@ -146,6 +172,8 @@ function renderConversation(elements, run, events, onCopyError) {
       elements.conversation.append(message);
     } else if (entry.kind === "error") {
       elements.conversation.append(errorMessage(entry.observation));
+    } else if (entry.kind === "changeset") {
+      elements.conversation.append(changeSetCard(entry.payload, onSelectArtifact));
     } else if (entry.kind === "result") {
       elements.conversation.append(
         resultStrip(entry.payload, events.slice(0, entry.eventIndex + 1)),
@@ -154,6 +182,42 @@ function renderConversation(elements, run, events, onCopyError) {
   }
   const scroller = elements.conversation.closest(".conversation-scroll");
   scroller.scrollTop = scroller.scrollHeight;
+}
+
+function changeSetCard(payload, onSelectArtifact) {
+  const files = payload.files || [];
+  const card = element("section", "changeset-card");
+  const heading = element("div", "changeset-heading");
+  heading.append(
+    element("span", "changeset-icon", "▣"),
+    element("strong", "", `${payload.legacy ? "涉及" : "已编辑"} ${files.length} 个文件`),
+  );
+  if (!payload.legacy) {
+    heading.append(
+      element("span", "changeset-total additions", `+${payload.additions || 0}`),
+      element("span", "changeset-total deletions", `-${payload.deletions || 0}`),
+    );
+  } else {
+    heading.append(element("span", "legacy-change-note", "历史记录仅可查看当前文件"));
+  }
+  card.append(heading);
+  const list = element("div", "changeset-files");
+  for (const file of files) {
+    const button = element("button", "changeset-file");
+    button.type = "button";
+    button.append(element("span", "changeset-path", file.path));
+    if (!payload.legacy) {
+      button.append(
+        element("span", "additions", `+${file.additions || 0}`),
+        element("span", "deletions", `-${file.deletions || 0}`),
+      );
+    }
+    button.append(element("span", "file-chevron", "›"));
+    button.addEventListener("click", () => onSelectArtifact(file));
+    list.append(button);
+  }
+  card.append(list);
+  return card;
 }
 
 function renderApprovalDock(elements, events, run, onResolveApproval) {
@@ -340,6 +404,10 @@ function humanToolLabel(toolName) {
 }
 
 function changedFileCount(events) {
+  const snapshot = events.findLast(
+    (stored) => stored.event.kind === "changeset_recorded",
+  );
+  if (snapshot) return snapshot.event.payload.files?.length || 0;
   return new Set(
     events
       .filter((stored) => stored.event.kind === "observation_received")

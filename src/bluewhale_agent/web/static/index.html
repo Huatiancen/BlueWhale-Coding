@@ -65,6 +65,13 @@
               </div>
               <h2>今天想做什么？</h2>
               <p>BlueWhale 会阅读项目、完成修改，并在交付前运行验证。</p>
+              <button id="home-open-project" class="home-primary-action" type="button">
+                <span aria-hidden="true">＋</span><span>打开项目</span>
+              </button>
+              <section class="recent-projects" aria-labelledby="recent-projects-title">
+                <h3 id="recent-projects-title">最近项目</h3>
+                <div id="home-recent-projects" class="recent-project-list"></div>
+              </section>
             </div>
             <p id="app-notice" class="notice" role="status" aria-live="polite" hidden></p>
           </div>
@@ -118,6 +125,14 @@
             <p class="composer-hint">BlueWhale 可能会犯错，重要变更请查看工作过程。</p>
           </div>
         </section>
+        <aside id="artifact-inspector" class="artifact-inspector" aria-label="文件详情" hidden>
+          <header class="inspector-header">
+            <div><small>文件详情</small><h2 id="inspector-title"></h2></div>
+            <button id="close-inspector" class="icon-button" type="button" aria-label="关闭文件详情">×</button>
+          </header>
+          <div id="inspector-toolbar" class="inspector-toolbar" role="group" aria-label="查看方式"></div>
+          <div id="inspector-content" class="inspector-content"></div>
+        </aside>
       </main>
     </div>
 

@@ -29,9 +29,13 @@ async def test_root_serves_accessible_conversation_workspace(tmp_path: Path) -> 
     assert 'id="session-list"' in html
     assert '<p class="sidebar-label">项目</p>' in html
     assert 'id="conversation-panel"' in html
+    assert 'id="home-open-project"' in html
+    assert 'id="home-recent-projects"' in html
     assert 'id="conversation-shell"' in html
     assert 'id="composer-shell"' in html
     assert 'id="approval-dock"' in html
+    assert 'id="artifact-inspector"' in html
+    assert 'id="inspector-content"' in html
     composer = html[html.index('id="composer-shell"') :]
     assert composer.index('id="approval-dock"') < composer.index('id="task-form"')
     assert 'id="work-details"' not in html
@@ -116,6 +120,7 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert set(scripts) == {
         "api.js",
         "app.js",
+        "artifact-view.js",
         "conversation-turns.js",
         "desktop.js",
         "event-view.js",
@@ -124,6 +129,7 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
         "project-groups.js",
         "render.js",
         "store.js",
+        "stream-guard.js",
     }
     assert "innerHTML" not in combined
     assert "insertAdjacentHTML" not in combined
@@ -134,6 +140,9 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert 'from "./message-copy.js"' in scripts["render.js"]
     assert 'from "./project-groups.js"' in scripts["render.js"]
     assert 'from "./conversation-turns.js"' in scripts["render.js"]
+    assert 'from "./artifact-view.js"' in scripts["app.js"]
+    assert "changeset-card" in scripts["render.js"]
+    assert "getRunFile" in scripts["app.js"]
     assert "conversationTimeline" in scripts["render.js"]
     assert "groupRunsByProject" in scripts["render.js"]
     assert "history-project-button" in scripts["render.js"]
@@ -148,6 +157,7 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "new EventSource" in scripts["api.js"]
     assert "workspace_grant_id" in scripts["api.js"]
     assert "pywebviewready" in scripts["desktop.js"]
+    assert "activate_history_workspace" in scripts["desktop.js"]
     assert "localStorage" not in scripts["desktop.js"]
     assert "sessionStorage" not in scripts["desktop.js"]
     assert "runs:" in scripts["store.js"]
@@ -163,6 +173,10 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "selectedRun" in scripts["app.js"]
     assert "startNewTask" in scripts["app.js"]
     assert "selectRun(null)" in scripts["app.js"]
+    assert "ensureRunWorkspace" in scripts["app.js"]
+    assert 'from "./stream-guard.js"' in scripts["app.js"]
+    assert "isCurrentStream" in scripts["app.js"]
+    assert "if (state.activeRunId) connectToRun" not in scripts["app.js"]
     assert "permissionMode" in scripts["app.js"]
     assert "onCopyError" in scripts["app.js"]
     assert "aria-checked" in scripts["app.js"]

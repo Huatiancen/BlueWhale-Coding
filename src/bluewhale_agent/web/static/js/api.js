@@ -7,6 +7,7 @@ const EVENT_TYPES = [
   "approval_resolved",
   "observation_received",
   "verification_finished",
+  "changeset_recorded",
   "run_finished",
 ];
 
@@ -34,6 +35,11 @@ export function listRuns() {
 
 export function getRun(runId) {
   return request(`/api/runs/${encodeURIComponent(runId)}`);
+}
+
+export function getRunFile(runId, path) {
+  const query = new URLSearchParams({ path });
+  return request(`/api/runs/${encodeURIComponent(runId)}/files?${query}`);
 }
 
 export function createRun({ task, workspace, workspaceGrantId, permissionMode }) {

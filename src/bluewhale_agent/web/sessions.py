@@ -318,6 +318,14 @@ class SessionManager:
             return ImportResult()
         return LegacyHistoryImporter(self._history).import_workspace(workspace)
 
+    def workspace_for_run(self, run_id: str) -> Path | None:
+        """Resolve a workspace only from an existing in-memory or indexed run id."""
+        live = self._sessions.get(run_id)
+        if live is not None:
+            return live.workspace
+        record = self._history.get(run_id) if self._history is not None else None
+        return record.workspace if record is not None else None
+
     def get(self, run_id: str) -> SessionView:
         try:
             return self._sessions[run_id]

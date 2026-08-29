@@ -53,6 +53,41 @@ test("keeps failed observations at their original timeline position", () => {
   assert.equal(timeline[1].observation.summary, "命令失败");
 });
 
+test("places a persisted changeset in the turn that produced it", () => {
+  const payload = { files: [{ path: "src/app.py", additions: 2, deletions: 1 }] };
+  const timeline = conversationTimeline(
+    { task: "修改代码" },
+    [
+      stored(1, "run_started", { task: "修改代码" }),
+      stored(2, "changeset_recorded", payload),
+      stored(3, "run_finished", { status: "completed" }),
+    ],
+  );
+
+  assert.equal(timeline[1].kind, "changeset");
+  assert.equal(timeline[1].payload.files[0].path, "src/app.py");
+});
+
+test("builds a source-only fallback card for older mutation history", () => {
+  const timeline = conversationTimeline(
+    { task: "旧任务" },
+    [
+      stored(1, "run_started", { task: "旧任务" }),
+      stored(2, "action_requested", {
+        action: { id: "write-1", tool_name: "write_file", arguments: { path: "old.py" } },
+      }),
+      stored(3, "observation_received", {
+        observation: { action_id: "write-1", status: "success", metadata: { path: "old.py" } },
+      }),
+      stored(4, "run_finished", { status: "completed" }),
+    ],
+  );
+
+  assert.equal(timeline[1].kind, "changeset");
+  assert.equal(timeline[1].payload.legacy, true);
+  assert.equal(timeline[1].payload.files[0].path, "old.py");
+});
+
 function stored(sequence, kind, payload) {
   return { sequence, event: { kind, payload } };
 }

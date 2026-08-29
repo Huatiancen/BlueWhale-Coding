@@ -20,6 +20,7 @@ class EventKind(StrEnum):
     APPROVAL_RESOLVED = "approval_resolved"
     OBSERVATION_RECEIVED = "observation_received"
     VERIFICATION_FINISHED = "verification_finished"
+    CHANGESET_RECORDED = "changeset_recorded"
     RUN_FINISHED = "run_finished"
 
 

@@ -27,6 +27,10 @@ export function getDesktopWorkspaceState(bridge) {
   return requireSuccess(bridge.workspace_state());
 }
 
+export function activateDesktopHistoryWorkspace(bridge, runId) {
+  return requireSuccess(bridge.activate_history_workspace(runId));
+}
+
 export function getDesktopSecretState(bridge) {
   return requireSuccess(bridge.secret_state());
 }

@@ -334,6 +334,9 @@ class AgentLoop:
         if state.can_continue:
             state.finish(reason, verified=verified)
         self._emit_state()
+        if self._context.changeset.changes:
+            snapshot = self._context.changeset.snapshot()
+            self._emit(EventKind.CHANGESET_RECORDED, snapshot.model_dump(mode="json"))
         self._emit(
             EventKind.RUN_FINISHED,
             {

@@ -76,6 +76,45 @@ def test_select_workspace_imports_local_history_after_grant(tmp_path: Path) -> N
     assert imported == [project.resolve()]
 
 
+def test_activate_history_workspace_creates_grant_from_run_id(tmp_path: Path) -> None:
+    project = tmp_path / "demo"
+    project.mkdir()
+    grants = WorkspaceGrantRegistry()
+    bridge = DesktopBridge(
+        picker=FakeFolderPicker(None),
+        grants=grants,
+        secrets=MemorySecretStore(),
+        has_active_run=lambda: False,
+        resolve_history_workspace=lambda run_id: project if run_id == "known" else None,
+    )
+
+    result = bridge.activate_history_workspace("known")
+
+    assert result["ok"] is True
+    assert result["grant_id"]
+    assert result["display_path"] == str(project.resolve())
+    assert grants.resolve(str(result["grant_id"])) == project.resolve()
+
+
+def test_activate_history_workspace_rejects_unknown_or_missing_project(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "missing"
+    bridge = DesktopBridge(
+        picker=FakeFolderPicker(None),
+        grants=WorkspaceGrantRegistry(),
+        secrets=MemorySecretStore(),
+        has_active_run=lambda: False,
+        resolve_history_workspace=lambda run_id: missing if run_id == "missing" else None,
+    )
+
+    unknown = bridge.activate_history_workspace("unknown")
+    unavailable = bridge.activate_history_workspace("missing")
+
+    assert unknown == {"ok": False, "error": "Historical task is unavailable"}
+    assert unavailable == {"ok": False, "error": "Historical workspace is unavailable"}
+
+
 def test_cancel_keeps_current_workspace_and_active_run_blocks_switch(tmp_path: Path) -> None:
     project = tmp_path / "demo"
     project.mkdir()

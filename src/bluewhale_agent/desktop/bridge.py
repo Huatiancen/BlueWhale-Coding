@@ -58,12 +58,14 @@ class DesktopBridge:
         secrets: SecretStore,
         has_active_run: Callable[[], bool],
         import_workspace_history: Callable[[Path], object] | None = None,
+        resolve_history_workspace: Callable[[str], Path | None] | None = None,
     ) -> None:
         self._picker = picker
         self._grants = grants
         self._secrets = secrets
         self._has_active_run = has_active_run
         self._import_workspace_history = import_workspace_history
+        self._resolve_history_workspace = resolve_history_workspace
 
     def select_workspace(self) -> dict[str, object]:
         if self._has_active_run():
@@ -92,6 +94,30 @@ class DesktopBridge:
         grant = self._grants.current()
         if grant is None:
             return {"ok": True, "configured": False}
+        return {
+            "ok": True,
+            "configured": True,
+            "grant_id": grant.id,
+            "display_name": grant.display_name,
+            "display_path": str(grant.path),
+        }
+
+    def activate_history_workspace(self, run_id: str) -> dict[str, object]:
+        """Grant the workspace owned by a user-selected local history record."""
+        if self._has_active_run():
+            return {
+                "ok": False,
+                "error": "Stop the active task before switching projects",
+            }
+        if self._resolve_history_workspace is None:
+            return {"ok": False, "error": "Historical task is unavailable"}
+        workspace = self._resolve_history_workspace(run_id)
+        if workspace is None:
+            return {"ok": False, "error": "Historical task is unavailable"}
+        try:
+            grant = self._grants.grant(workspace)
+        except WorkspaceGrantError:
+            return {"ok": False, "error": "Historical workspace is unavailable"}
         return {
             "ok": True,
             "configured": True,

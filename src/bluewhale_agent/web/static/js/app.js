@@ -3,11 +3,13 @@ import {
   continueRun,
   createRun,
   getRun,
+  getRunFile,
   listRuns,
   resolveApproval,
   stopRun,
 } from "./api.js";
 import {
+  activateDesktopHistoryWorkspace,
   clearDesktopApiKey,
   detectDesktopBridge,
   getDesktopSecretState,
@@ -15,7 +17,9 @@ import {
   saveDesktopApiKey,
   selectDesktopWorkspace,
 } from "./desktop.js";
+import { renderArtifactInspector } from "./artifact-view.js";
 import { renderWorkspace } from "./render.js";
+import { createStreamGuard } from "./stream-guard.js";
 import {
   addEvent,
   selectRun,
@@ -47,6 +51,8 @@ const elements = {
   desktopControls: document.querySelector("#desktop-controls"),
   desktopProject: document.querySelector("#desktop-project"),
   openProject: document.querySelector("#open-project"),
+  homeOpenProject: document.querySelector("#home-open-project"),
+  homeRecentProjects: document.querySelector("#home-recent-projects"),
   projectName: document.querySelector("#project-name"),
   projectPath: document.querySelector("#project-path"),
   openModelSettings: document.querySelector("#open-model-settings"),
@@ -65,6 +71,11 @@ const elements = {
   conversation: document.querySelector("#conversation-panel"),
   conversationEmpty: document.querySelector("#conversation-empty"),
   approvalDock: document.querySelector("#approval-dock"),
+  inspector: document.querySelector("#artifact-inspector"),
+  inspectorTitle: document.querySelector("#inspector-title"),
+  inspectorToolbar: document.querySelector("#inspector-toolbar"),
+  inspectorContent: document.querySelector("#inspector-content"),
+  closeInspector: document.querySelector("#close-inspector"),
   permissionTrigger: document.querySelector("#permission-trigger"),
   permissionLabel: document.querySelector("#permission-label"),
   permissionMenu: document.querySelector("#permission-menu"),
@@ -74,7 +85,10 @@ const elements = {
 let closeEventStream = null;
 let desktopBridge = null;
 let workspaceGrantId = null;
+let workspacePath = null;
 let busy = false;
+let selectedArtifact = null;
+const streamGuard = createStreamGuard();
 
 subscribe((snapshot) => {
   renderWorkspace(elements, snapshot, {
@@ -82,6 +96,7 @@ subscribe((snapshot) => {
     onResolveApproval: submitApproval,
     onCopyError: (message) => showNotice(message, true),
     onToggleProject: toggleProjectCollapsed,
+    onSelectArtifact: openArtifact,
   });
   updateControls();
   renderPermissionControl(snapshot.permissionMode);
@@ -92,6 +107,7 @@ elements.newTask.addEventListener("click", startNewTask);
 elements.stopButton.addEventListener("click", stopActiveRun);
 elements.refreshButton.addEventListener("click", refreshRuns);
 elements.openProject.addEventListener("click", openDesktopProject);
+elements.homeOpenProject.addEventListener("click", openDesktopProject);
 elements.desktopProject.addEventListener("click", openDesktopProject);
 elements.openModelSettings.addEventListener("click", showModelSettings);
 elements.closeModelSettings.addEventListener("click", () => elements.modelSettings.close());
@@ -115,7 +131,6 @@ async function boot() {
     const runs = await listRuns();
     setRuns(runs);
     setConnectionState("idle");
-    if (state.activeRunId) connectToRun(state.activeRunId);
   } catch (error) {
     showNotice(error.message, true);
     setConnectionState("error");
@@ -126,7 +141,16 @@ async function submitTask(event) {
   event.preventDefault();
   const task = elements.taskInput.value.trim();
   const workspace = elements.workspaceInput.value.trim() || ".";
+  const selectedRun = state.runs.find((item) => item.id === state.activeRunId);
   if (!task) return;
+  if (desktopBridge && !workspaceGrantId && selectedRun?.continuable) {
+    try {
+      await ensureRunWorkspace(selectedRun);
+    } catch (error) {
+      showNotice(error.message, true);
+      return;
+    }
+  }
   if (desktopBridge && !workspaceGrantId) {
     showNotice("请先打开一个项目。", true);
     return;
@@ -134,7 +158,6 @@ async function submitTask(event) {
   setBusy(true);
   hideNotice();
   try {
-    const selectedRun = state.runs.find((item) => item.id === state.activeRunId);
     const request = {
       task,
       workspace,
@@ -195,24 +218,54 @@ async function refreshRuns() {
 
 function startNewTask() {
   closeStream();
+  closeArtifact();
   selectRun(null);
   setConnectionState("idle");
   hideNotice();
   elements.taskInput.focus();
 }
 
-function activateRun(runId) {
-  if (state.activeRunId === runId && closeEventStream) return;
-  selectRun(runId);
-  connectToRun(runId);
+async function activateRun(runId) {
+  const alreadyConnected = state.activeRunId === runId && closeEventStream;
+  if (!alreadyConnected) {
+    closeArtifact();
+    selectRun(runId);
+    connectToRun(runId);
+  }
+  const run = state.runs.find((item) => item.id === runId);
+  try {
+    await ensureRunWorkspace(run);
+  } catch (error) {
+    showNotice(error.message, true);
+  }
+}
+
+async function openArtifact(file) {
+  selectedArtifact = { ...file };
+  renderArtifactInspector(elements, selectedArtifact, { onClose: closeArtifact });
+  try {
+    const current = await getRunFile(state.activeRunId, file.path);
+    if (selectedArtifact?.path !== file.path) return;
+    selectedArtifact = { ...selectedArtifact, currentContent: current.content };
+    renderArtifactInspector(elements, selectedArtifact, { onClose: closeArtifact });
+  } catch (error) {
+    if (!file.after) showNotice(error.message, true);
+  }
+}
+
+function closeArtifact() {
+  selectedArtifact = null;
+  renderArtifactInspector(elements, null, { onClose: closeArtifact });
 }
 
 function connectToRun(runId) {
   closeStream();
+  const isCurrentStream = streamGuard.begin();
   setConnectionState("connecting");
   const run = state.runs.find((item) => item.id === runId);
   closeEventStream = connectRunEvents(runId, {
     onState(connectionState, detail) {
+      if (!isCurrentStream()) return;
       if (run?.historical && connectionState === "reconnecting") {
         closeStream();
         setConnectionState("idle");
@@ -222,6 +275,7 @@ function connectToRun(runId) {
       if (detail) showNotice(detail, true);
     },
     async onEvent(storedEvent) {
+      if (!isCurrentStream()) return;
       addEvent(runId, storedEvent);
       if (storedEvent.event.kind === "run_finished") {
         closeStream();
@@ -238,6 +292,7 @@ function connectToRun(runId) {
 }
 
 function closeStream() {
+  streamGuard.invalidate();
   if (closeEventStream) closeEventStream();
   closeEventStream = null;
 }
@@ -281,6 +336,7 @@ async function openDesktopProject() {
 
 function applyWorkspace(workspace) {
   workspaceGrantId = workspace.grant_id;
+  workspacePath = workspace.display_path;
   elements.projectName.textContent = workspace.display_name;
   elements.projectPath.textContent = workspace.display_path;
 }
@@ -333,15 +389,27 @@ function updateControls() {
   const active = state.runs.some(
     (run) => !run.historical && ACTIVE_RUN_STATUSES.has(run.status),
   );
+  const selectedRun = state.runs.find((run) => run.id === state.activeRunId);
+  const needsWorkspace = Boolean(
+    desktopBridge && !workspaceGrantId && !selectedRun?.continuable,
+  );
   elements.openProject.disabled = busy || active;
+  elements.homeOpenProject.disabled = busy || active;
   elements.newTask.disabled = busy || active;
   elements.desktopProject.disabled = busy || active;
   elements.submitButton.disabled =
-    busy || active || Boolean(desktopBridge && !workspaceGrantId);
+    busy || active || needsWorkspace;
   elements.taskInput.disabled = busy || active;
   elements.workspaceInput.disabled = busy || active;
   elements.permissionTrigger.disabled = busy || active;
   if (busy || active) closePermissionMenu();
+}
+
+async function ensureRunWorkspace(run) {
+  if (!desktopBridge || !run?.continuable) return;
+  if (workspaceGrantId && workspacePath === run.workspace) return;
+  const workspace = await activateDesktopHistoryWorkspace(desktopBridge, run.id);
+  applyWorkspace(workspace);
 }
 
 function togglePermissionMenu(event) {

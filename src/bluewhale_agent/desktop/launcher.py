@@ -89,6 +89,7 @@ def run_desktop(
         secrets=selected_store,
         has_active_run=app.state.sessions.has_active_run,
         import_workspace_history=app.state.sessions.import_workspace_history,
+        resolve_history_workspace=app.state.sessions.workspace_for_run,
     )
     selected_controller_factory = controller_factory or _create_server_controller
     controller = selected_controller_factory(app)

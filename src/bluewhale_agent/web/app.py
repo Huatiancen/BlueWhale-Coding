@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import mimetypes
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Header, HTTPException, Request, status
+from fastapi import FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import RequestResponseEndpoint
@@ -17,6 +18,11 @@ from bluewhale_agent.history.conversation import ConversationHistoryError
 from bluewhale_agent.history.repository import HistoryRepository
 from bluewhale_agent.providers.base import ModelProvider
 from bluewhale_agent.providers.deepseek import DeepSeekProvider
+from bluewhale_agent.runtime.paths import (
+    PathAccessDeniedError,
+    PathAccessError,
+    WorkspacePaths,
+)
 from bluewhale_agent.trajectory.store import TrajectoryCorruptionError
 from bluewhale_agent.web.approvals import (
     ApprovalBroker,
@@ -31,6 +37,7 @@ from bluewhale_agent.web.schemas import (
     RunContinueRequest,
     RunCreateRequest,
     RunResponse,
+    WorkspaceFileResponse,
 )
 from bluewhale_agent.web.sessions import (
     ProviderConfigurationError,
@@ -194,6 +201,40 @@ def create_app(
     @app.get("/api/runs/{run_id}", response_model=RunResponse)
     async def get_run(run_id: str) -> RunResponse:
         return _get_session(manager, run_id).response()
+
+    @app.get("/api/runs/{run_id}/files", response_model=WorkspaceFileResponse)
+    async def get_run_file(
+        run_id: str,
+        path: str = Query(min_length=1),
+    ) -> WorkspaceFileResponse:
+        _get_session(manager, run_id)
+        workspace = manager.workspace_for_run(run_id)
+        if workspace is None:
+            raise HTTPException(status_code=404, detail=f"Unknown run: {run_id}")
+        try:
+            resolved = WorkspacePaths(workspace).resolve(path)
+        except PathAccessDeniedError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except PathAccessError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        if not resolved.is_file() or resolved.is_symlink():
+            raise HTTPException(status_code=400, detail="Path must be a regular file")
+        raw = resolved.read_bytes()
+        if len(raw) > 1_000_000:
+            raise HTTPException(status_code=413, detail="File is too large to preview")
+        if b"\x00" in raw:
+            raise HTTPException(status_code=415, detail="Binary files cannot be shown as text")
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise HTTPException(status_code=415, detail="File is not UTF-8 text") from error
+        mime_type = mimetypes.guess_type(resolved.name)[0] or "text/plain"
+        return WorkspaceFileResponse(
+            path=resolved.relative_to(workspace.resolve()).as_posix(),
+            content=content,
+            mime_type=mime_type,
+            size=len(raw),
+        )
 
     @app.post("/api/runs/{run_id}/stop", response_model=RunResponse)
     async def stop_run(run_id: str) -> RunResponse:

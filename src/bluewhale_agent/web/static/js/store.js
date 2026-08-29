@@ -18,8 +18,8 @@ export function subscribe(listener) {
 
 export function setRuns(runs) {
   state.runs = [...runs];
-  if (!state.runs.some((run) => run.id === state.activeRunId)) {
-    state.activeRunId = state.runs.at(-1)?.id || null;
+  if (state.activeRunId && !state.runs.some((run) => run.id === state.activeRunId)) {
+    state.activeRunId = null;
   }
   const projectKeys = new Set(state.runs.map(projectKey));
   state.collapsedProjects = new Set(

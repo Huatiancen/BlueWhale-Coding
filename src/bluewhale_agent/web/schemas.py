@@ -15,6 +15,17 @@ class HealthResponse(BaseModel):
     status: str = "ok"
 
 
+class WorkspaceFileResponse(BaseModel):
+    """A text artifact read from the workspace associated with one run."""
+
+    model_config = ConfigDict(frozen=True)
+
+    path: str
+    content: str
+    mime_type: str
+    size: int = Field(ge=0)
+
+
 class RunCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
