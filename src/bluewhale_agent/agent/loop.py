@@ -101,6 +101,8 @@ class AgentLoop:
         event_sink: Callable[[StoredEvent], None] | None = None,
         approval_handler: Callable[[Action, PermissionResult], Awaitable[bool]] | None = None,
         permission_mode: PermissionMode = PermissionMode.BALANCED,
+        initial_history: Sequence[Message] = (),
+        initial_observations: Sequence[Observation] = (),
     ) -> None:
         self._run_id = run_id
         self._provider = provider
@@ -137,9 +139,10 @@ class AgentLoop:
         self._state: AgentState | None = None
         self._task = ""
         self._started_at = 0.0
+        self._prior_history = list(initial_history)
         self._history: list[Message] = []
         self._actions: list[Action] = []
-        self._observations: list[Observation] = []
+        self._observations = list(initial_observations)
         self._unresolved_errors: list[str] = []
         self._consecutive_format_errors = 0
         self._final_answer: str | None = None
@@ -213,6 +216,7 @@ class AgentLoop:
             workspace_map=self._workspace_map.build(),
             history=self._history,
             observations=self._observations,
+            prior_history=self._prior_history,
         )
 
     def _record_response(self, response: ModelResponse) -> None:
@@ -230,6 +234,7 @@ class AgentLoop:
             EventKind.MODEL_RESPONSE,
             {
                 "content": response.content,
+                "reasoning_content": response.reasoning_content,
                 "finish_reason": response.finish_reason,
                 "tool_calls": [item.model_dump(mode="json") for item in response.tool_calls],
             },

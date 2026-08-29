@@ -1,3 +1,4 @@
+import { conversationTimeline } from "./conversation-turns.js";
 import { findPendingApproval } from "./event-view.js";
 import { renderMarkdown } from "./markdown.js";
 import { createMessageCopyButton } from "./message-copy.js";
@@ -122,35 +123,33 @@ function renderConversation(elements, run, events, onCopyError) {
   elements.conversationEmpty.hidden = Boolean(run);
   if (!run) return;
 
-  const userMessage = element("article", "message user-message");
-  userMessage.append(
-    element("p", "", run.task),
-    createMessageCopyButton(run.task, { onError: onCopyError }),
-  );
-  elements.conversation.append(userMessage);
-
   const workDetails = createWorkDetails(run, events);
   if (workDetails) elements.conversation.append(workDetails);
 
-  for (const stored of events) {
-    const { kind, payload } = stored.event;
-    if (kind === "model_response" && payload.content) {
+  for (const entry of conversationTimeline(run, events)) {
+    if (entry.kind === "user") {
+      const message = element("article", "message user-message");
+      message.append(
+        element("p", "", entry.content),
+        createMessageCopyButton(entry.content, { onError: onCopyError }),
+      );
+      elements.conversation.append(message);
+    } else if (entry.kind === "assistant") {
       const message = element("article", "message assistant-message");
-      const markdown = renderMarkdown(payload.content);
+      const markdown = renderMarkdown(entry.content);
       markdown.classList.add("message-copy");
       message.append(
         avatar(),
         markdown,
-        createMessageCopyButton(payload.content, { onError: onCopyError }),
+        createMessageCopyButton(entry.content, { onError: onCopyError }),
       );
       elements.conversation.append(message);
-    } else if (
-      kind === "observation_received" &&
-      payload.observation?.status !== "success"
-    ) {
-      elements.conversation.append(errorMessage(payload.observation));
-    } else if (kind === "run_finished") {
-      elements.conversation.append(resultStrip(payload, events));
+    } else if (entry.kind === "error") {
+      elements.conversation.append(errorMessage(entry.observation));
+    } else if (entry.kind === "result") {
+      elements.conversation.append(
+        resultStrip(entry.payload, events.slice(0, entry.eventIndex + 1)),
+      );
     }
   }
   const scroller = elements.conversation.closest(".conversation-scroll");

@@ -46,6 +46,16 @@ export function createRun({ task, workspace, workspaceGrantId, permissionMode })
   });
 }
 
+export function continueRun(runId, { task, workspace, workspaceGrantId, permissionMode }) {
+  const body = { task, permission_mode: permissionMode };
+  if (workspaceGrantId) body.workspace_grant_id = workspaceGrantId;
+  else body.workspace = workspace || ".";
+  return request(`/api/runs/${encodeURIComponent(runId)}/continue`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 export function stopRun(runId) {
   return request(`/api/runs/${encodeURIComponent(runId)}/stop`, { method: "POST" });
 }

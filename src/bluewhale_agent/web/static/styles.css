@@ -150,6 +150,12 @@ summary:focus-visible {
   text-overflow: ellipsis;
 }
 
+.sidebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .icon-button {
   display: grid;
   width: 32px;

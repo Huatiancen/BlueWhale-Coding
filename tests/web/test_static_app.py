@@ -23,6 +23,8 @@ async def test_root_serves_accessible_conversation_workspace(tmp_path: Path) -> 
     html = response.text
     assert '<meta name="color-scheme" content="light">' in html
     assert 'id="task-form"' in html
+    assert 'id="new-task"' in html
+    assert 'aria-label="新建任务"' in html
     assert 'for="task-input"' in html
     assert 'id="session-list"' in html
     assert '<p class="sidebar-label">项目</p>' in html
@@ -114,6 +116,7 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert set(scripts) == {
         "api.js",
         "app.js",
+        "conversation-turns.js",
         "desktop.js",
         "event-view.js",
         "markdown.js",
@@ -130,6 +133,8 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "renderMarkdown" in scripts["render.js"]
     assert 'from "./message-copy.js"' in scripts["render.js"]
     assert 'from "./project-groups.js"' in scripts["render.js"]
+    assert 'from "./conversation-turns.js"' in scripts["render.js"]
+    assert "conversationTimeline" in scripts["render.js"]
     assert "groupRunsByProject" in scripts["render.js"]
     assert "history-project-button" in scripts["render.js"]
     assert "project-task-list" in scripts["render.js"]
@@ -137,8 +142,7 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert 'setAttribute("aria-current", "true")' in scripts["render.js"]
     assert "status-dot" not in scripts["render.js"]
     assert "session-copy" not in scripts["render.js"]
-    assert "createMessageCopyButton(run.task" in scripts["render.js"]
-    assert "createMessageCopyButton(payload.content" in scripts["render.js"]
+    assert "createMessageCopyButton(entry.content" in scripts["render.js"]
     assert "createElement" in scripts["markdown.js"]
     assert "fetch(" in scripts["api.js"]
     assert "new EventSource" in scripts["api.js"]
@@ -153,6 +157,12 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert 'permissionMode: "balanced"' in scripts["store.js"]
     assert "setPermissionMode" in scripts["store.js"]
     assert "permission_mode" in scripts["api.js"]
+    assert "export function continueRun" in scripts["api.js"]
+    assert "/continue`" in scripts["api.js"]
+    assert "continueRun" in scripts["app.js"]
+    assert "selectedRun" in scripts["app.js"]
+    assert "startNewTask" in scripts["app.js"]
+    assert "selectRun(null)" in scripts["app.js"]
     assert "permissionMode" in scripts["app.js"]
     assert "onCopyError" in scripts["app.js"]
     assert "aria-checked" in scripts["app.js"]

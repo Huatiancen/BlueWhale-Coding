@@ -63,9 +63,11 @@ class ContextManager:
         workspace_map: WorkspaceMap,
         history: Sequence[Message],
         observations: Sequence[Observation],
+        prior_history: Sequence[Message] = (),
     ) -> list[Message]:
+        normalized_prior = self._normalize_observations(prior_history, observations)
         normalized_history = self._normalize_observations(history, observations)
-        groups = self._section_groups(
+        sections = self._section_groups(
             system_prompt=system_prompt,
             task=task,
             status=status,
@@ -73,6 +75,9 @@ class ContextManager:
             working_set=working_set,
             workspace_map=workspace_map,
         )
+        groups = [sections[0]]
+        groups.extend(self._history_groups(normalized_prior, observations))
+        groups.extend(sections[1:])
         groups.extend(self._history_groups(normalized_history, observations))
         return self._fit_budget(groups)
 

@@ -13,9 +13,11 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
 from bluewhale_agent.config import Settings
+from bluewhale_agent.history.conversation import ConversationHistoryError
 from bluewhale_agent.history.repository import HistoryRepository
 from bluewhale_agent.providers.base import ModelProvider
 from bluewhale_agent.providers.deepseek import DeepSeekProvider
+from bluewhale_agent.trajectory.store import TrajectoryCorruptionError
 from bluewhale_agent.web.approvals import (
     ApprovalBroker,
     ApprovalConflictError,
@@ -26,6 +28,7 @@ from bluewhale_agent.web.desktop_auth import DESKTOP_COOKIE, DesktopSessionGuard
 from bluewhale_agent.web.schemas import (
     ApprovalResolveRequest,
     HealthResponse,
+    RunContinueRequest,
     RunCreateRequest,
     RunResponse,
 )
@@ -165,6 +168,28 @@ def create_app(
     @app.get("/api/runs", response_model=list[RunResponse])
     async def list_runs() -> list[RunResponse]:
         return [session.response() for session in manager.list()]
+
+    @app.post(
+        "/api/runs/{run_id}/continue",
+        response_model=RunResponse,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def continue_run(run_id: str, request: RunContinueRequest) -> RunResponse:
+        try:
+            session = await manager.continue_run(run_id, request)
+        except RunNotFoundError as error:
+            raise HTTPException(status_code=404, detail=f"Unknown run: {run_id}") from error
+        except (
+            RunConflictError,
+            ConversationHistoryError,
+            TrajectoryCorruptionError,
+        ) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except WorkspaceSelectionError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except ProviderConfigurationError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        return session.response()
 
     @app.get("/api/runs/{run_id}", response_model=RunResponse)
     async def get_run(run_id: str) -> RunResponse:

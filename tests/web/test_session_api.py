@@ -11,7 +11,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 from pydantic import ValidationError
 
-from bluewhale_agent.domain.models import ModelResponse
+from bluewhale_agent.domain.models import MessageRole, ModelResponse
 from bluewhale_agent.runtime.permissions import PermissionMode
 from bluewhale_agent.web.app import create_app
 from bluewhale_agent.web.schemas import RunCreateRequest
@@ -261,6 +261,113 @@ async def test_local_history_survives_app_restart_and_replays_events(tmp_path: P
     assert fetched.json()["workspace_available"] is True
     assert fetched.json()["final_answer"] == "Persisted answer."
     assert [event["event"] for event in parse_sse(replayed.text)][-1] == "run_finished"
+
+
+@pytest.mark.asyncio
+async def test_historical_run_continues_with_same_id_and_restored_context(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    history_root = tmp_path / "application-history"
+    first_app = create_app(
+        workspace=workspace,
+        history_root=history_root,
+        provider_factory=lambda: FakeModelProvider(
+            [ModelResponse(content="第一轮回答。", finish_reason="stop")]
+        ),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=first_app), base_url="http://test"
+    ) as first_client:
+        await first_client.post(
+            "/api/runs",
+            json={"run_id": "continued", "task": "先检查项目", "workspace": "."},
+        )
+        await wait_for_terminal(first_client, "continued")
+
+    second_provider = FakeModelProvider(
+        [ModelResponse(content="第二轮回答。", finish_reason="stop")]
+    )
+    second_app = create_app(
+        workspace=workspace,
+        history_root=history_root,
+        provider_factory=lambda: second_provider,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=second_app), base_url="http://test"
+    ) as second_client:
+        continued = await second_client.post(
+            "/api/runs/continued/continue",
+            json={"task": "继续解释边界条件", "workspace": "."},
+        )
+        finished = await wait_for_terminal(second_client, "continued")
+        listed = await second_client.get("/api/runs")
+        replayed = await second_client.get("/api/runs/continued/events")
+
+    assert continued.status_code == 202
+    assert continued.json()["id"] == "continued"
+    assert continued.json()["task"] == "先检查项目"
+    assert continued.json()["historical"] is False
+    assert finished["final_answer"] == "第二轮回答。"
+    assert finished["continuable"] is True
+    assert [item["id"] for item in listed.json()] == ["continued"]
+    sent = second_provider.calls[0][0]
+    assert any(
+        message.role is MessageRole.USER and message.content == "先检查项目"
+        for message in sent
+    )
+    assert any(
+        message.role is MessageRole.ASSISTANT and message.content == "第一轮回答。"
+        for message in sent
+    )
+    assert any("继续解释边界条件" in (message.content or "") for message in sent)
+    event_names = [event["event"] for event in parse_sse(replayed.text)]
+    assert event_names.count("run_started") == 2
+    assert event_names.count("run_finished") == 2
+
+
+@pytest.mark.asyncio
+async def test_historical_run_cannot_continue_after_workspace_disappears(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    history_root = tmp_path / "application-history"
+    first_app = create_app(
+        workspace=workspace,
+        history_root=history_root,
+        provider_factory=lambda: FakeModelProvider(
+            [ModelResponse(content="已保存。", finish_reason="stop")]
+        ),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=first_app), base_url="http://test"
+    ) as first_client:
+        await first_client.post(
+            "/api/runs",
+            json={"run_id": "missing-to-continue", "task": "保存", "workspace": "."},
+        )
+        await wait_for_terminal(first_client, "missing-to-continue")
+    workspace.rmdir()
+
+    fallback = tmp_path / "fallback"
+    fallback.mkdir()
+    second_app = create_app(
+        workspace=fallback,
+        history_root=history_root,
+        provider_factory=lambda: FakeModelProvider([]),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=second_app), base_url="http://test"
+    ) as second_client:
+        response = await second_client.post(
+            "/api/runs/missing-to-continue/continue",
+            json={"task": "继续", "workspace": "."},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "历史任务的工作区当前不可用"
 
 
 @pytest.mark.asyncio

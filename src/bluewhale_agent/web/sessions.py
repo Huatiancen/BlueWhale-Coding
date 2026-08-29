@@ -13,6 +13,7 @@ from uuid import uuid4
 from bluewhale_agent.agent.loop import AgentLoop, AgentRunResult
 from bluewhale_agent.domain.events import EventKind, RunEvent
 from bluewhale_agent.domain.models import Action, Limits, RunStatus
+from bluewhale_agent.history.conversation import restore_conversation
 from bluewhale_agent.history.importer import ImportResult, LegacyHistoryImporter
 from bluewhale_agent.history.projector import project_history
 from bluewhale_agent.history.repository import HistoryRecord, HistoryRepository
@@ -26,8 +27,8 @@ from bluewhale_agent.web.approvals import (
     ApprovalStatus,
 )
 from bluewhale_agent.web.event_bus import EventBus
-from bluewhale_agent.web.schemas import RunCreateRequest, RunResponse
-from bluewhale_agent.web.workspaces import WorkspaceResolver
+from bluewhale_agent.web.schemas import RunContinueRequest, RunCreateRequest, RunResponse
+from bluewhale_agent.web.workspaces import WorkspaceResolver, WorkspaceSelectionError
 
 ProviderFactory = Callable[[], ModelProvider]
 
@@ -66,6 +67,7 @@ class RunSession:
             workspace_name=self.workspace.name or str(self.workspace),
             workspace_available=self.workspace.is_dir(),
             historical=False,
+            continuable=result is not None and self.workspace.is_dir(),
             status=result.status if result is not None else self.status,
             stop_reason=result.stop_reason if result is not None else None,
             verified=result.verified if result is not None else None,
@@ -95,6 +97,7 @@ class HistoricalSession:
             workspace_name=self.record.workspace_name,
             workspace_available=self.record.workspace_available,
             historical=True,
+            continuable=self.record.workspace_available,
             status=self.record.status,
             stop_reason=self.record.stop_reason,
             verified=self.record.verified,
@@ -209,7 +212,91 @@ class SessionManager:
                 permission_mode=request.permission_mode,
             )
             self._sessions[run_id] = session
-            session.background = asyncio.create_task(self._execute(session, loop))
+            session.background = asyncio.create_task(self._execute(session, loop, request.task))
+            return session
+
+    async def continue_run(
+        self,
+        run_id: str,
+        request: RunContinueRequest,
+    ) -> RunSession:
+        """Append one new user turn to an existing local trajectory."""
+        async with self._lock:
+            previous = self.get(run_id)
+            if isinstance(previous, RunSession) and self._is_active(previous):
+                raise RunConflictError("Run is already active")
+            if any(
+                self._is_active(session)
+                for session_id, session in self._sessions.items()
+                if session_id != run_id
+            ):
+                raise RunConflictError("Another run is already active")
+
+            workspace = (
+                previous.record.workspace
+                if isinstance(previous, HistoricalSession)
+                else previous.workspace
+            )
+            if not workspace.is_dir():
+                raise WorkspaceSelectionError("历史任务的工作区当前不可用")
+            selection = RunCreateRequest(
+                task=request.task,
+                workspace=request.workspace,
+                workspace_grant_id=request.workspace_grant_id,
+                permission_mode=request.permission_mode,
+            )
+            selected_workspace = self._workspace_resolver.resolve(selection)
+            if selected_workspace.resolve(strict=False) != workspace.resolve(strict=False):
+                raise WorkspaceSelectionError("当前授权项目与历史任务工作区不一致")
+
+            try:
+                provider = self._provider_factory()
+            except (ValueError, RuntimeError) as error:
+                raise ProviderConfigurationError(str(error)) from error
+
+            trajectory = previous.trajectory
+            seed = restore_conversation(trajectory.events_after(0))
+            event_bus = EventBus()
+            cancel_event = asyncio.Event()
+            title = (
+                previous.record.task
+                if isinstance(previous, HistoricalSession)
+                else previous.task
+            )
+            created_at = (
+                previous.record.created_at
+                if isinstance(previous, HistoricalSession)
+                else previous.created_at
+            )
+            session = RunSession(
+                id=run_id,
+                task=title,
+                workspace=workspace,
+                created_at=created_at,
+                cancel_event=cancel_event,
+                trajectory=trajectory,
+                event_bus=event_bus,
+                status=RunStatus.RUNNING,
+            )
+
+            async def approval_handler(action: Action, permission: PermissionResult) -> bool:
+                return await self._request_approval(session, action, permission)
+
+            loop = AgentLoop(
+                run_id=run_id,
+                workspace=workspace,
+                provider=provider,
+                limits=self._limits,
+                cancel_event=cancel_event,
+                trajectory=trajectory,
+                event_sink=lambda stored: self._record_event(session, stored),
+                approval_handler=approval_handler,
+                permission_mode=request.permission_mode,
+                initial_history=seed.messages,
+                initial_observations=seed.observations,
+            )
+            self._sessions[run_id] = session
+            session.background = asyncio.create_task(self._execute(session, loop, request.task))
             return session
 
     def list(self) -> tuple[SessionView, ...]:
@@ -382,8 +469,8 @@ class SessionManager:
             session.event_bus.publish(stored)
         return stored
 
-    async def _execute(self, session: RunSession, loop: AgentLoop) -> None:
-        result = await loop.run(session.task)
+    async def _execute(self, session: RunSession, loop: AgentLoop, task: str) -> None:
+        result = await loop.run(task)
         session.result = result
         session.status = result.status
 

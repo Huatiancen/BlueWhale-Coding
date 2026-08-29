@@ -1,5 +1,6 @@
 import {
   connectRunEvents,
+  continueRun,
   createRun,
   getRun,
   listRuns,
@@ -38,6 +39,7 @@ const elements = {
   connection: document.querySelector("#connection-status"),
   sessionList: document.querySelector("#session-list"),
   sessionEmpty: document.querySelector("#session-empty"),
+  newTask: document.querySelector("#new-task"),
   taskForm: document.querySelector("#task-form"),
   taskInput: document.querySelector("#task-input"),
   workspaceInput: document.querySelector("#workspace-input"),
@@ -86,6 +88,7 @@ subscribe((snapshot) => {
 });
 
 elements.taskForm.addEventListener("submit", submitTask);
+elements.newTask.addEventListener("click", startNewTask);
 elements.stopButton.addEventListener("click", stopActiveRun);
 elements.refreshButton.addEventListener("click", refreshRuns);
 elements.openProject.addEventListener("click", openDesktopProject);
@@ -131,12 +134,16 @@ async function submitTask(event) {
   setBusy(true);
   hideNotice();
   try {
-    const run = await createRun({
+    const selectedRun = state.runs.find((item) => item.id === state.activeRunId);
+    const request = {
       task,
       workspace,
       workspaceGrantId,
       permissionMode: state.permissionMode,
-    });
+    };
+    const run = selectedRun?.continuable
+      ? await continueRun(selectedRun.id, request)
+      : await createRun(request);
     upsertRun(run);
     selectRun(run.id);
     elements.taskInput.value = "";
@@ -184,6 +191,14 @@ async function refreshRuns() {
   } catch (error) {
     showNotice(error.message, true);
   }
+}
+
+function startNewTask() {
+  closeStream();
+  selectRun(null);
+  setConnectionState("idle");
+  hideNotice();
+  elements.taskInput.focus();
 }
 
 function activateRun(runId) {
@@ -319,6 +334,7 @@ function updateControls() {
     (run) => !run.historical && ACTIVE_RUN_STATUSES.has(run.status),
   );
   elements.openProject.disabled = busy || active;
+  elements.newTask.disabled = busy || active;
   elements.desktopProject.disabled = busy || active;
   elements.submitButton.disabled =
     busy || active || Boolean(desktopBridge && !workspaceGrantId);

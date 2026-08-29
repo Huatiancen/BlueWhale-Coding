@@ -12,6 +12,7 @@ from bluewhale_agent.domain.events import EventKind
 from bluewhale_agent.domain.models import (
     Action,
     Limits,
+    Message,
     MessageRole,
     ModelResponse,
     ObservationStatus,
@@ -38,6 +39,40 @@ def response(
 
 def action(action_id: str, tool_name: str, **arguments: object) -> Action:
     return Action(id=action_id, tool_name=tool_name, arguments=arguments)
+
+
+@pytest.mark.asyncio
+async def test_initial_history_is_copied_into_the_first_model_request(
+    tmp_path: Path,
+) -> None:
+    initial_history = (
+        Message(role=MessageRole.USER, content="先解释这个模块"),
+        Message(role=MessageRole.ASSISTANT, content="这个模块负责计算。"),
+    )
+    provider = FakeModelProvider([response(content="继续说明完成。")])
+
+    await AgentLoop(
+        run_id="continued-run",
+        workspace=tmp_path,
+        provider=provider,
+        initial_history=initial_history,
+    ).run("继续说明边界条件")
+
+    sent = provider.calls[0][0]
+    contents = [message.content or "" for message in sent]
+    assert any("继续说明边界条件" in content for content in contents)
+    assert "先解释这个模块" in contents
+    assert "这个模块负责计算。" in contents
+    previous_user = contents.index("先解释这个模块")
+    previous_assistant = contents.index("这个模块负责计算。")
+    current_user = next(
+        index for index, content in enumerate(contents) if "继续说明边界条件" in content
+    )
+    assert previous_user < previous_assistant < current_user
+    assert initial_history == (
+        Message(role=MessageRole.USER, content="先解释这个模块"),
+        Message(role=MessageRole.ASSISTANT, content="这个模块负责计算。"),
+    )
 
 
 @pytest.mark.asyncio

@@ -28,6 +28,17 @@ class RunCreateRequest(BaseModel):
     permission_mode: PermissionMode = PermissionMode.BALANCED
 
 
+class RunContinueRequest(BaseModel):
+    """A new user turn appended to an existing local run trajectory."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    task: str = Field(min_length=1)
+    workspace: str | None = Field(default=None, min_length=1)
+    workspace_grant_id: str | None = Field(default=None, min_length=1)
+    permission_mode: PermissionMode = PermissionMode.BALANCED
+
+
 class ApprovalResolveRequest(BaseModel):
     """Strict one-shot decision submitted by the local GUI."""
 
@@ -45,6 +56,7 @@ class RunResponse(BaseModel):
     workspace_name: str
     workspace_available: bool = True
     historical: bool = False
+    continuable: bool = False
     status: RunStatus
     stop_reason: StopReason | None = None
     verified: bool | None = None
