@@ -95,6 +95,7 @@ let desktopBridge = null;
 let workspaceGrantId = null;
 let workspacePath = null;
 let busy = false;
+let composerIsComposing = false;
 let selectedArtifact = null;
 const streamGuard = createStreamGuard();
 let sidebarSize = 248;
@@ -150,6 +151,12 @@ elements.apiKeyForm.addEventListener("submit", saveApiKey);
 elements.clearApiKey.addEventListener("click", clearApiKey);
 elements.taskInput.addEventListener("input", resizeComposer);
 elements.taskInput.addEventListener("keydown", submitWithShortcut);
+elements.taskInput.addEventListener("compositionstart", () => {
+  composerIsComposing = true;
+});
+elements.taskInput.addEventListener("compositionend", () => {
+  composerIsComposing = false;
+});
 elements.permissionTrigger.addEventListener("click", togglePermissionMenu);
 for (const option of elements.permissionOptions) {
   option.addEventListener("click", () => choosePermissionMode(option.dataset.permissionMode));
@@ -521,7 +528,7 @@ function resizeComposer() {
 }
 
 function submitWithShortcut(event) {
-  if (!shouldSubmitComposer(event)) return;
+  if (!shouldSubmitComposer(event, composerIsComposing)) return;
   event.preventDefault();
   elements.taskForm.requestSubmit();
 }

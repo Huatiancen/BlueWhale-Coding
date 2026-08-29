@@ -296,12 +296,11 @@ function errorMessage(observation) {
 }
 
 function resultStrip(payload, events) {
-  const completed = payload.status === "completed";
   const changedFiles = changedFileCount(events);
-  const strip = element("article", `result-strip ${completed ? "success" : "error"}`);
+  const strip = element("article", "result-strip error");
   strip.append(
-    element("span", "result-icon", completed ? "✓" : "!"),
-    element("strong", "", completed ? "任务已完成" : stopReasonLabel(payload.stop_reason)),
+    element("span", "result-icon", "!"),
+    element("strong", "", stopReasonLabel(payload.stop_reason)),
   );
   const facts = [];
   if (payload.verified === true) facts.push("验证已通过");

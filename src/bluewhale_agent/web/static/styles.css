@@ -911,10 +911,6 @@ summary:focus-visible {
   gap: 9px;
 }
 
-.result-strip.success .result-icon {
-  color: var(--success);
-}
-
 .result-strip.error .result-icon {
   color: var(--danger);
 }

@@ -20,13 +20,25 @@ test("builds interleaved user and assistant messages from every run", () => {
       { kind: "user", content: "最初的问题" },
       { kind: "work", content: undefined },
       { kind: "assistant", content: "第一轮回答" },
-      { kind: "result", content: undefined },
       { kind: "user", content: "继续追问" },
       { kind: "work", content: undefined },
       { kind: "assistant", content: "第二轮回答" },
-      { kind: "result", content: undefined },
     ],
   );
+});
+
+test("keeps failed turn results visible while hiding successful completion strips", () => {
+  const timeline = conversationTimeline(
+    { task: "运行任务" },
+    [
+      stored(1, "run_started", { task: "运行任务" }),
+      stored(2, "run_finished", { status: "failed", stop_reason: "tool_error" }),
+    ],
+  );
+
+  const result = timeline.find((entry) => entry.kind === "result");
+  assert.equal(result.payload.status, "failed");
+  assert.equal(result.payload.stop_reason, "tool_error");
 });
 
 test("falls back to the run title for imported history without run_started", () => {

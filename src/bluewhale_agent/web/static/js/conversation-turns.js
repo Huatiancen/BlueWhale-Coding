@@ -82,7 +82,6 @@ function turnTimeline(turn) {
       hasPersistedChanges = true;
       timeline.push({ kind: "changeset", payload, eventIndex });
     } else if (kind === "run_finished") {
-      const hasChanges = hasPersistedChanges || legacyFiles.size > 0;
       if (!hasPersistedChanges && legacyFiles.size) {
         timeline.push({
           kind: "changeset",
@@ -95,7 +94,7 @@ function turnTimeline(turn) {
           eventIndex,
         });
       }
-      if (payload.status !== "completed" || !hasChanges) {
+      if (payload.status !== "completed") {
         timeline.push({ kind: "result", payload, events: storedEvents, eventIndex });
       }
     }

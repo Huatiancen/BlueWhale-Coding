@@ -24,6 +24,28 @@ test("does not submit while an input method is composing text", () => {
   );
 });
 
+test("does not submit while the input element remains in composition mode", () => {
+  assert.equal(
+    shouldSubmitComposer(
+      { key: "Enter", shiftKey: false, isComposing: false, keyCode: 13 },
+      true,
+    ),
+    false,
+  );
+});
+
+test("does not submit WebKit IME confirmation events identified by key code 229", () => {
+  assert.equal(
+    shouldSubmitComposer({
+      key: "Enter",
+      shiftKey: false,
+      isComposing: false,
+      keyCode: 229,
+    }),
+    false,
+  );
+});
+
 test("ignores keys other than Enter", () => {
   assert.equal(
     shouldSubmitComposer({ key: "a", shiftKey: false, isComposing: false }),
