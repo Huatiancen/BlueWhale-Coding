@@ -1108,7 +1108,7 @@ summary {
 }
 
 .work-disclosure[open] .disclosure-chevron {
-  transform: rotate(180deg);
+  transform: rotate(90deg);
 }
 
 .work-duration {

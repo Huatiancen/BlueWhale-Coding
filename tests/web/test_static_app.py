@@ -139,6 +139,9 @@ def test_styles_define_bluewhale_palette_and_responsive_layout() -> None:
     assert ".diff-line-number" in css
     assert ".turn-work" in css
     assert ".work-duration" in css
+    assert 'transform: rotate(90deg)' in css_rule(
+        css, ".work-disclosure[open] .disclosure-chevron"
+    )
     assert "max-width: 1040px" in css
     assert "@media" in css
     assert "prefers-reduced-motion" in css
@@ -216,6 +219,7 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
     assert "createMessageCopyButton(entry.content" in scripts["render.js"]
     assert "assistant-avatar" not in scripts["render.js"]
     assert "modelNarration" in scripts["render.js"]
+    assert 'element("span", "disclosure-chevron", "›")' in scripts["render.js"]
     assert '"撤销"' in scripts["render.js"]
     assert '"审核"' not in scripts["render.js"]
     assert "createElement" in scripts["markdown.js"]

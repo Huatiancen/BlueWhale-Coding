@@ -129,6 +129,77 @@ def test_restore_conversation_rejects_unpaired_tool_observation() -> None:
         restore_conversation(events)
 
 
+def test_restore_conversation_closes_tool_calls_from_an_interrupted_turn() -> None:
+    events = [
+        stored(1, EventKind.RUN_STARTED, {"task": "运行测试"}),
+        stored(
+            2,
+            EventKind.MODEL_RESPONSE,
+            {
+                "content": "先运行测试。",
+                "finish_reason": "tool_calls",
+                "tool_calls": [
+                    {
+                        "id": "command-1",
+                        "tool_name": "run_command",
+                        "arguments": {"command": "python -m unittest"},
+                    }
+                ],
+            },
+        ),
+        stored(
+            3,
+            EventKind.RUN_FINISHED,
+            {"status": "stopped", "stop_reason": "user_stopped"},
+        ),
+        stored(4, EventKind.RUN_STARTED, {"task": "继续"}),
+        stored(
+            5,
+            EventKind.MODEL_RESPONSE,
+            {"content": "继续处理。", "finish_reason": "stop", "tool_calls": []},
+        ),
+    ]
+
+    seed = restore_conversation(events)
+
+    cancelled = seed.observations[0]
+    assert cancelled.action_id == "command-1"
+    assert cancelled.status is ObservationStatus.ERROR
+    assert "user_stopped" in cancelled.summary
+    assert [message.role for message in seed.messages] == [
+        MessageRole.USER,
+        MessageRole.ASSISTANT,
+        MessageRole.TOOL,
+        MessageRole.USER,
+        MessageRole.ASSISTANT,
+    ]
+
+
+def test_restore_conversation_rejects_pending_tool_calls_from_completed_turn() -> None:
+    events = [
+        stored(1, EventKind.RUN_STARTED, {"task": "运行测试"}),
+        stored(
+            2,
+            EventKind.MODEL_RESPONSE,
+            {
+                "content": None,
+                "finish_reason": "tool_calls",
+                "tool_calls": [
+                    {
+                        "id": "missing-result",
+                        "tool_name": "run_command",
+                        "arguments": {"command": "python -m unittest"},
+                    }
+                ],
+            },
+        ),
+        stored(3, EventKind.RUN_FINISHED, {"status": "completed"}),
+    ]
+
+    with pytest.raises(ConversationHistoryError, match="missing-result"):
+        restore_conversation(events)
+
+
 def test_restore_conversation_rejects_invalid_user_turn() -> None:
     with pytest.raises(ConversationHistoryError, match="run_started"):
         restore_conversation([stored(1, EventKind.RUN_STARTED, {"task": ""})])

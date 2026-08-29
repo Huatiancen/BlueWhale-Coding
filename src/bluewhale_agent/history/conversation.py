@@ -7,7 +7,13 @@ from dataclasses import dataclass
 from pydantic import ValidationError
 
 from bluewhale_agent.domain.events import EventKind
-from bluewhale_agent.domain.models import Action, Message, MessageRole, Observation
+from bluewhale_agent.domain.models import (
+    Action,
+    Message,
+    MessageRole,
+    Observation,
+    ObservationStatus,
+)
 from bluewhale_agent.trajectory.store import StoredEvent
 
 
@@ -93,6 +99,30 @@ def restore_conversation(events: list[StoredEvent]) -> ConversationSeed:
                 )
             )
             pending_actions.remove(observation.action_id)
+        elif kind is EventKind.RUN_FINISHED and pending_actions:
+            status = payload.get("status")
+            if status not in {"stopped", "failed"}:
+                _require_no_pending(pending_actions, stored.sequence)
+            reason = payload.get("stop_reason")
+            reason_label = reason if isinstance(reason, str) and reason else str(status)
+            for action_id in sorted(pending_actions):
+                observation = Observation(
+                    action_id=action_id,
+                    status=ObservationStatus.ERROR,
+                    summary=f"Previous tool call ended without a result: {reason_label}",
+                    content="The previous run was interrupted before this tool returned.",
+                    metadata={"recovered": True, "stop_reason": reason_label},
+                    duration_ms=0,
+                )
+                observations.append(observation)
+                messages.append(
+                    Message(
+                        role=MessageRole.TOOL,
+                        content=observation.model_dump_json(),
+                        tool_call_id=action_id,
+                    )
+                )
+            pending_actions.clear()
 
     _require_no_pending(pending_actions, None)
     return ConversationSeed(messages=tuple(messages), observations=tuple(observations))

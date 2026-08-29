@@ -347,7 +347,7 @@ function workSummary(work) {
   duration.dataset.startedAt = work.startedAt || "";
   summary.append(
     duration,
-    element("span", "disclosure-chevron", "⌄"),
+    element("span", "disclosure-chevron", "›"),
   );
   return summary;
 }
