@@ -25,6 +25,21 @@ class FakeCompletions:
         return outcome
 
 
+class FakeStream:
+    def __init__(self, chunks: list[object]) -> None:
+        self._chunks = chunks
+
+    def __aiter__(self):
+        self._iterator = iter(self._chunks)
+        return self
+
+    async def __anext__(self) -> object:
+        try:
+            return next(self._iterator)
+        except StopIteration as error:
+            raise StopAsyncIteration from error
+
+
 class FakeClient:
     def __init__(self, outcomes: list[object]) -> None:
         self.completions = FakeCompletions(outcomes)
@@ -64,6 +79,23 @@ def tool_call(call_id: str, name: str, arguments: str) -> object:
         id=call_id,
         type="function",
         function=SimpleNamespace(name=name, arguments=arguments),
+    )
+
+
+def stream_chunk(
+    *,
+    content: str | None = None,
+    reasoning_content: str | None = None,
+    finish_reason: str | None = None,
+    tool_calls: list[object] | None = None,
+) -> object:
+    delta = SimpleNamespace(
+        content=content,
+        reasoning_content=reasoning_content,
+        tool_calls=tool_calls or [],
+    )
+    return SimpleNamespace(
+        choices=[SimpleNamespace(delta=delta, finish_reason=finish_reason)]
     )
 
 
@@ -108,6 +140,30 @@ async def test_complete_converts_plain_text_response() -> None:
     assert client.completions.requests[0]["messages"] == [
         {"role": "user", "content": "fix the bug"}
     ]
+
+
+@pytest.mark.asyncio
+async def test_stream_emits_reasoning_separately_and_assembles_final_answer() -> None:
+    chunks = FakeStream(
+        [
+            stream_chunk(reasoning_content="先检查"),
+            stream_chunk(content="修复"),
+            stream_chunk(content="完成", finish_reason="stop"),
+        ]
+    )
+    instance, client = provider([chunks])
+    deltas = []
+
+    result = await instance.stream([], [], deltas.append)
+
+    assert [(delta.kind, delta.content) for delta in deltas] == [
+        ("reasoning", "先检查"),
+        ("answer", "修复"),
+        ("answer", "完成"),
+    ]
+    assert result.reasoning_content == "先检查"
+    assert result.content == "修复完成"
+    assert client.completions.requests[0]["stream"] is True
 
 
 @pytest.mark.asyncio

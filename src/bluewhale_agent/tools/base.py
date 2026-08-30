@@ -25,6 +25,7 @@ class ToolContext:
     max_read_lines: int = 500
     command_timeout_seconds: float = 120.0
     max_command_output_bytes: int = 20_000
+    command_network_allowed: bool = False
     changeset: ChangeSet = field(default_factory=ChangeSet)
 
 

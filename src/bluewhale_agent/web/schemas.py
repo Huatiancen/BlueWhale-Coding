@@ -50,6 +50,12 @@ class RunContinueRequest(BaseModel):
     permission_mode: PermissionMode = PermissionMode.BALANCED
 
 
+class RuntimeInstructionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1, max_length=20_000)
+
+
 class ApprovalResolveRequest(BaseModel):
     """Strict one-shot decision submitted by the local GUI."""
 

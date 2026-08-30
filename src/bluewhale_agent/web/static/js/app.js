@@ -5,9 +5,11 @@ import {
   getRun,
   getRunFile,
   listRuns,
+  queueInstruction,
   resolveApproval,
   stopRun,
   undoChangeset,
+  withdrawInstruction,
 } from "./api.js";
 import {
   activateDesktopHistoryWorkspace,
@@ -137,6 +139,7 @@ subscribe((snapshot) => {
     onToggleProject: toggleProjectCollapsed,
     onSelectArtifact: openArtifact,
     onUndoChangeset: undoActiveChangeset,
+    onWithdrawInstruction: withdrawQueuedInstruction,
   });
   updateControls();
   renderPermissionControl(snapshot.permissionMode);
@@ -188,7 +191,20 @@ async function submitTask(event) {
   const task = elements.taskInput.value.trim();
   const workspace = elements.workspaceInput.value.trim() || ".";
   const selectedRun = state.runs.find((item) => item.id === state.activeRunId);
+  const selectedIsActive = Boolean(
+    selectedRun && !selectedRun.historical && ACTIVE_RUN_STATUSES.has(selectedRun.status),
+  );
   if (!task) return;
+  if (selectedIsActive) {
+    try {
+      await queueInstruction(selectedRun.id, task);
+      elements.taskInput.value = "";
+      resizeComposer();
+    } catch (error) {
+      showNotice(error.message, true);
+    }
+    return;
+  }
   if (desktopBridge && selectedRun?.continuable) {
     try {
       await ensureRunWorkspace(selectedRun);
@@ -262,6 +278,17 @@ async function undoActiveChangeset(changesetSequence) {
     addEvent(runId, storedEvent);
     closeArtifact();
     showNotice("已撤销该轮文件变更。");
+    return true;
+  } catch (error) {
+    showNotice(error.message, true);
+    return false;
+  }
+}
+
+async function withdrawQueuedInstruction(instructionId) {
+  if (!state.activeRunId) return false;
+  try {
+    await withdrawInstruction(state.activeRunId, instructionId);
     return true;
   } catch (error) {
     showNotice(error.message, true);
@@ -357,6 +384,17 @@ function connectToRun(runId) {
     async onEvent(storedEvent) {
       if (!isCurrentStream()) return;
       addEvent(runId, storedEvent);
+      if (
+        storedEvent.event.kind === "instruction_withdrawn" &&
+        storedEvent.event.payload?.reason === "run_stopped" &&
+        storedEvent.event.payload?.content
+      ) {
+        const restored = storedEvent.event.payload.content;
+        elements.taskInput.value = [elements.taskInput.value, restored]
+          .filter(Boolean)
+          .join("\n");
+        resizeComposer();
+      }
       if (storedEvent.event.kind === "run_finished") {
         if (run?.historical) return;
         try {
@@ -489,8 +527,8 @@ function updateControls() {
   elements.newTask.disabled = busy || active;
   elements.desktopProject.disabled = busy || active;
   elements.submitButton.disabled =
-    busy || active || needsWorkspace;
-  elements.taskInput.disabled = busy || active;
+    busy || needsWorkspace;
+  elements.taskInput.disabled = busy;
   elements.workspaceInput.disabled = busy || active;
   elements.permissionTrigger.disabled = busy || active;
   if (busy || active) closePermissionMenu();

@@ -140,6 +140,28 @@ async def test_only_one_run_can_be_active_and_stop_is_persisted(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_running_task_accepts_and_withdraws_queued_instruction(tmp_path: Path) -> None:
+    provider = BlockingProvider()
+    app = create_app(workspace=tmp_path, provider_factory=lambda: provider)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post("/api/runs", json={"run_id": "steer", "task": "等待"})
+        await asyncio.wait_for(provider.started.wait(), timeout=1)
+        queued = await client.post(
+            "/api/runs/steer/instructions", json={"content": "不要修改配置"}
+        )
+        instruction_id = queued.json()["id"]
+        withdrawn = await client.delete(
+            f"/api/runs/steer/instructions/{instruction_id}"
+        )
+        await client.post("/api/runs/steer/stop")
+
+    assert queued.status_code == 202
+    assert withdrawn.status_code == 200
+    assert withdrawn.json()["content"] == "不要修改配置"
+
+
+@pytest.mark.asyncio
 async def test_sse_replays_events_after_last_event_id_without_duplicates(
     client: httpx.AsyncClient,
 ) -> None:

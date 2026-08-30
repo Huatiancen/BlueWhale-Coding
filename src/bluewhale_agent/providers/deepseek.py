@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from typing import Protocol, cast
 
 from openai import (
@@ -17,7 +17,7 @@ from pydantic import ValidationError
 
 from bluewhale_agent.config import Settings
 from bluewhale_agent.domain.models import Action, Message, MessageRole, ModelResponse
-from bluewhale_agent.providers.base import ModelProtocolError, ProviderRequestError
+from bluewhale_agent.providers.base import ModelDelta, ModelProtocolError, ProviderRequestError
 
 _ALLOWED_FINISH_REASONS = {
     "stop",
@@ -53,6 +53,19 @@ class _Choice(Protocol):
 
 class _CompletionResponse(Protocol):
     choices: Sequence[_Choice]
+
+
+class _StreamChoice(Protocol):
+    finish_reason: str | None
+    delta: _ResponseMessage
+
+
+class _StreamChunk(Protocol):
+    choices: Sequence[_StreamChoice]
+
+
+class _AsyncCompletionStream(Protocol):
+    def __aiter__(self) -> AsyncIterator[_StreamChunk]: ...
 
 
 class _Completions(Protocol):
@@ -108,13 +121,95 @@ class DeepSeekProvider:
             "reasoning_effort": "high",
             "extra_body": {"thinking": {"type": "enabled"}},
         }
-        response = await self._request_with_retries(request)
+        response = cast(_CompletionResponse, await self._request_with_retries(request))
         return self._parse_response(response)
+
+    async def stream(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, object]],
+        on_delta: Callable[[ModelDelta], None],
+    ) -> ModelResponse:
+        """Stream reasoning and answer fragments, then return one assembled response."""
+
+        request: dict[str, object] = {
+            "model": self._settings.model,
+            "messages": [self._serialize_message(message) for message in messages],
+            "tools": tools or None,
+            "stream": True,
+            "reasoning_effort": "high",
+            "extra_body": {"thinking": {"type": "enabled"}},
+        }
+        stream = cast(_AsyncCompletionStream, await self._request_with_retries(request))
+        reasoning: list[str] = []
+        answer: list[str] = []
+        tool_parts: dict[int, dict[str, str]] = {}
+        finish_reason: str | None = None
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            delta = choice.delta
+            if delta.reasoning_content:
+                reasoning.append(delta.reasoning_content)
+                on_delta(ModelDelta(kind="reasoning", content=delta.reasoning_content))
+            if delta.content:
+                answer.append(delta.content)
+                on_delta(ModelDelta(kind="answer", content=delta.content))
+            for part in delta.tool_calls or ():
+                index = int(getattr(part, "index", 0))
+                aggregate = tool_parts.setdefault(
+                    index, {"id": "", "name": "", "arguments": ""}
+                )
+                if getattr(part, "id", None):
+                    aggregate["id"] += part.id
+                function = getattr(part, "function", None)
+                if function is not None and getattr(function, "name", None):
+                    aggregate["name"] += function.name
+                if function is not None and getattr(function, "arguments", None):
+                    aggregate["arguments"] += function.arguments
+                on_delta(ModelDelta(kind="tool_call", content=aggregate["name"]))
+            if choice.finish_reason is not None:
+                finish_reason = choice.finish_reason
+
+        if finish_reason not in _ALLOWED_FINISH_REASONS:
+            raise ModelProtocolError(
+                f"DeepSeek returned unknown finish reason {finish_reason!r}."
+            )
+        actions = tuple(
+            self._parse_streamed_tool_call(item) for _, item in sorted(tool_parts.items())
+        )
+        return ModelResponse(
+            content="".join(answer) or None,
+            reasoning_content="".join(reasoning) or None,
+            tool_calls=actions,
+            finish_reason=finish_reason,
+        )
+
+    @staticmethod
+    def _parse_streamed_tool_call(item: dict[str, str]) -> Action:
+        call_id = item["id"]
+        try:
+            arguments = json.loads(item["arguments"] or "{}")
+        except json.JSONDecodeError as error:
+            raise ModelProtocolError(
+                f"Tool call {call_id!r} arguments are not valid JSON."
+            ) from error
+        if not isinstance(arguments, dict):
+            raise ModelProtocolError(
+                f"Tool call {call_id!r} arguments must be a JSON object."
+            )
+        try:
+            return Action(id=call_id, tool_name=item["name"], arguments=arguments)
+        except ValidationError as error:
+            raise ModelProtocolError(
+                f"Tool call {call_id!r} contains invalid fields."
+            ) from error
 
     async def _request_with_retries(
         self,
         request: dict[str, object],
-    ) -> _CompletionResponse:
+    ) -> object:
         max_retries = self._settings.limits.max_api_retries
         for attempt in range(max_retries + 1):
             try:

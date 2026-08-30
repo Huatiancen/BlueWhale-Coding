@@ -784,6 +784,24 @@ summary:focus-visible {
   bottom: -28px;
 }
 
+.instruction-state {
+  display: inline-block;
+  margin-top: 6px;
+  color: color-mix(in srgb, var(--ink-100) 68%, transparent);
+  font-size: 0.68rem;
+}
+
+.instruction-withdraw {
+  padding: 0;
+  margin-left: 10px;
+  border: 0;
+  color: var(--ink-100);
+  background: transparent;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 @media (hover: none) {
   .message-copy-button {
     opacity: 0.58;
@@ -1214,6 +1232,38 @@ summary {
 .step-body p {
   margin: 0 0 6px;
   line-height: 1.5;
+}
+
+.plan-list {
+  display: grid;
+  gap: 5px;
+  padding: 4px 0 10px 14px;
+  margin: 0;
+  list-style: none;
+}
+
+.plan-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  color: var(--ink-400);
+  line-height: 1.45;
+}
+
+.plan-evidence {
+  grid-column: 2;
+  overflow: hidden;
+  color: var(--ink-500);
+  font-size: 0.66rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-item.passed .plan-status {
+  color: var(--success);
+}
+
+.plan-item.running .plan-description {
+  color: var(--ink-200);
 }
 
 .step-body pre {

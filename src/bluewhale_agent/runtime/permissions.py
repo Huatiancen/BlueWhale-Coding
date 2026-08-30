@@ -37,12 +37,14 @@ class PermissionResult(BaseModel):
 
     decision: PermissionDecision
     reason: str
+    allow_network: bool = False
 
 
 class PermissionPolicy:
     """Classify local tool actions before execution."""
 
     READ_ONLY_TOOLS = frozenset({"get_diff", "list_files", "read_file", "search_text"})
+    LOCAL_CONTROL_TOOLS = frozenset({"update_plan"})
 
     def __init__(
         self,
@@ -57,6 +59,11 @@ class PermissionPolicy:
             return PermissionResult(
                 decision=PermissionDecision.ALLOW,
                 reason="Known read-only workspace tool",
+            )
+        if action.tool_name in self.LOCAL_CONTROL_TOOLS:
+            return PermissionResult(
+                decision=PermissionDecision.ALLOW,
+                reason="Local agent control operation",
             )
         if action.tool_name == "apply_patch":
             return self._evaluate_file_mutation(action)
@@ -117,7 +124,10 @@ class PermissionPolicy:
             PermissionDecision.ASK: 1,
             PermissionDecision.DENY: 2,
         }
-        return max(results, key=lambda item: severity[item.decision])
+        selected = max(results, key=lambda item: severity[item.decision])
+        return selected.model_copy(
+            update={"allow_network": any(item.allow_network for item in results)}
+        )
 
     def _evaluate_argv(self, argv: tuple[str, ...]) -> PermissionResult:
         executable = os.path.basename(argv[0]).lower()
@@ -146,6 +156,7 @@ class PermissionPolicy:
             return PermissionResult(
                 decision=PermissionDecision.ASK,
                 reason=f"命令 {argv[0]} 涉及联网、安装、发布或 Git 写入，需要你确认",
+                allow_network=_requires_network(executable, arguments),
             )
         if _is_known_safe_command(executable, arguments) and not self._is_trusted_executable(
             argv[0]
@@ -231,6 +242,16 @@ def _requires_command_approval(executable: str, arguments: list[str]) -> bool:
     if _is_python_executable(executable) and len(arguments) >= 3:
         return arguments[:3] in (["-m", "pip", "install"], ["-m", "pip", "uninstall"])
     return False
+
+
+def _requires_network(executable: str, arguments: list[str]) -> bool:
+    if executable in {"curl", "wget", "brew", "apt", "apt-get", "dnf", "pacman"}:
+        return True
+    if executable in {"pip", "pip3"}:
+        return bool(arguments and arguments[0] == "install")
+    if executable in {"npm", "pnpm", "yarn"}:
+        return bool(arguments and arguments[0] in {"add", "install", "publish"})
+    return _is_python_executable(executable) and arguments[:3] == ["-m", "pip", "install"]
 
 
 def _is_known_safe_command(executable: str, arguments: list[str]) -> bool:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from time import monotonic
 
 from pydantic import ValidationError
@@ -72,8 +73,13 @@ class ToolRegistry:
                     duration_ms=self._duration_ms(started),
                 )
 
+        invocation_context = (
+            replace(self._context, command_network_allowed=True)
+            if permission.allow_network
+            else self._context
+        )
         try:
-            output = await tool.invoke(action.arguments, self._context)
+            output = await tool.invoke(action.arguments, invocation_context)
         except ValidationError:
             return self._error(action, f"Invalid arguments for {action.tool_name}", started)
         except PathAccessDeniedError as exc:

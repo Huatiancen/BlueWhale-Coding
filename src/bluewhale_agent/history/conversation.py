@@ -47,6 +47,14 @@ def restore_conversation(events: list[StoredEvent]) -> ConversationSeed:
                     f"run_started event {stored.sequence} has no valid task"
                 )
             messages.append(Message(role=MessageRole.USER, content=task.strip()))
+        elif kind is EventKind.INSTRUCTION_DELIVERED:
+            _require_no_pending(pending_actions, stored.sequence)
+            content = payload.get("content")
+            if not isinstance(content, str) or not content.strip():
+                raise ConversationHistoryError(
+                    f"instruction_delivered event {stored.sequence} has no valid content"
+                )
+            messages.append(Message(role=MessageRole.USER, content=content.strip()))
         elif kind is EventKind.MODEL_RESPONSE:
             _require_no_pending(pending_actions, stored.sequence)
             actions = _actions(payload.get("tool_calls"), stored.sequence)

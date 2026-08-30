@@ -151,6 +151,27 @@ class EvidenceLedger:
         self._steps[step_id] = step
         return step
 
+    def set_plan(self, steps: Sequence[TaskStep]) -> tuple[TaskStep, ...]:
+        """Replace the proposed plan while preserving compatible evidence state."""
+
+        if len({step.id for step in steps}) != len(steps):
+            raise ValueError("Task step identifiers must be unique")
+        updated: dict[str, TaskStep] = {}
+        for proposed in steps:
+            current = self._steps.get(proposed.id)
+            if (
+                current is not None
+                and current.description == proposed.description
+                and current.requirement is proposed.requirement
+            ):
+                updated[proposed.id] = current
+            else:
+                updated[proposed.id] = proposed.model_copy(
+                    update={"status": StepStatus.PENDING, "evidence_ids": ()}
+                )
+        self._steps = updated
+        return self.steps
+
     def get_step(self, step_id: str) -> TaskStep:
         try:
             return self._steps[step_id]

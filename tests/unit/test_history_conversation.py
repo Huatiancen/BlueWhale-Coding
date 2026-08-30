@@ -105,6 +105,30 @@ def test_restore_conversation_accepts_old_model_events_without_reasoning() -> No
     assert seed.messages[-1].reasoning_content is None
 
 
+def test_restore_conversation_keeps_delivered_runtime_instruction() -> None:
+    seed = restore_conversation(
+        [
+            stored(1, EventKind.RUN_STARTED, {"task": "先检查"}),
+            stored(
+                2,
+                EventKind.INSTRUCTION_DELIVERED,
+                {"instruction_id": "next", "content": "不要修改配置"},
+            ),
+            stored(
+                3,
+                EventKind.MODEL_RESPONSE,
+                {"content": "收到", "finish_reason": "stop", "tool_calls": []},
+            ),
+        ]
+    )
+
+    assert [message.content for message in seed.messages] == [
+        "先检查",
+        "不要修改配置",
+        "收到",
+    ]
+
+
 def test_restore_conversation_rejects_unpaired_tool_observation() -> None:
     events = [
         stored(1, EventKind.RUN_STARTED, {"task": "检查"}),

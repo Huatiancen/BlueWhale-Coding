@@ -3,6 +3,23 @@ import test from "node:test";
 
 import { conversationTimeline } from "../../../src/bluewhale_agent/web/static/js/conversation-turns.js";
 
+test("流式增量在完成前分别进入过程和回答", () => {
+  const timeline = conversationTimeline(
+    { task: "修复问题" },
+    [
+      stored(1, "run_started", { task: "修复问题" }),
+      stored(2, "model_delta", { kind: "reasoning", content: "先检查" }),
+      stored(3, "model_delta", { kind: "answer", content: "已经" }),
+      stored(4, "model_delta", { kind: "answer", content: "修复" }),
+    ],
+  );
+
+  assert.deepEqual(timeline.find((item) => item.kind === "work").modelNarration, [
+    "先检查",
+  ]);
+  assert.equal(timeline.find((item) => item.kind === "assistant").content, "已经修复");
+});
+
 test("builds interleaved user and assistant messages from every run", () => {
   const run = { task: "最初的问题" };
   const events = [

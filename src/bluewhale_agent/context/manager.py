@@ -6,6 +6,7 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from bluewhale_agent.context.compaction import summarize_conversation
 from bluewhale_agent.context.workspace_map import WorkspaceMap
 from bluewhale_agent.domain.models import (
     Message,
@@ -64,6 +65,7 @@ class ContextManager:
         history: Sequence[Message],
         observations: Sequence[Observation],
         prior_history: Sequence[Message] = (),
+        project_instructions: str = "",
     ) -> list[Message]:
         normalized_prior = self._normalize_observations(prior_history, observations)
         normalized_history = self._normalize_observations(history, observations)
@@ -74,8 +76,22 @@ class ContextManager:
             unresolved_errors=unresolved_errors,
             working_set=working_set,
             workspace_map=workspace_map,
+            project_instructions=project_instructions,
         )
         groups = [sections[0]]
+        if normalized_prior:
+            groups.append(
+                _MessageGroup(
+                    messages=[
+                        Message(
+                            role=MessageRole.SYSTEM,
+                            content=summarize_conversation(normalized_prior),
+                        )
+                    ],
+                    priority=700,
+                    required=True,
+                )
+            )
         groups.extend(self._history_groups(normalized_prior, observations))
         groups.extend(sections[1:])
         groups.extend(self._history_groups(normalized_history, observations))
@@ -90,6 +106,7 @@ class ContextManager:
         unresolved_errors: Sequence[str],
         working_set: Mapping[str, str],
         workspace_map: WorkspaceMap,
+        project_instructions: str,
     ) -> list[_MessageGroup]:
         status_value = status.value if isinstance(status, RunStatus) else status
         groups = [
@@ -109,6 +126,21 @@ class ContextManager:
                 required=True,
             ),
         ]
+        if project_instructions:
+            groups.insert(
+                1,
+                _MessageGroup(
+                    messages=[
+                        Message(
+                            role=MessageRole.SYSTEM,
+                            content="# Project instructions (AGENTS.md)\n"
+                            + project_instructions,
+                        )
+                    ],
+                    priority=950,
+                    required=True,
+                ),
+            )
         if unresolved_errors:
             content = "# Unresolved errors\n" + "\n".join(
                 f"- {error}" for error in unresolved_errors

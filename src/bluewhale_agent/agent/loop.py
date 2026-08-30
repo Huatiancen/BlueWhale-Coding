@@ -7,8 +7,11 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
+from typing import cast
 
 from bluewhale_agent.agent.state import AgentState
+from bluewhale_agent.agent.steering import RuntimeInstruction, RuntimeInstructionQueue
+from bluewhale_agent.context.instructions import load_project_instructions
 from bluewhale_agent.context.manager import ContextBudgetError, ContextManager
 from bluewhale_agent.context.workspace_map import WorkspaceMapBuilder
 from bluewhale_agent.domain.events import EventKind, RunEvent
@@ -23,8 +26,9 @@ from bluewhale_agent.domain.models import (
     RunStatus,
     StopReason,
 )
-from bluewhale_agent.evidence.ledger import EvidenceLedger, LedgerReport
+from bluewhale_agent.evidence.ledger import EvidenceLedger, LedgerReport, StepStatus
 from bluewhale_agent.providers.base import (
+    ModelDelta,
     ModelProtocolError,
     ModelProvider,
     ProviderRequestError,
@@ -39,6 +43,7 @@ from bluewhale_agent.runtime.permissions import (
 from bluewhale_agent.tools.base import ToolContext
 from bluewhale_agent.tools.filesystem import ListFilesTool, ReadFileTool, SearchTextTool
 from bluewhale_agent.tools.mutation import ApplyPatchTool, GetDiffTool, WriteFileTool
+from bluewhale_agent.tools.planning import UpdatePlanTool
 from bluewhale_agent.tools.registry import ToolRegistry
 from bluewhale_agent.trajectory.store import StoredEvent, TrajectoryStore
 from bluewhale_agent.verification.discovery import (
@@ -53,6 +58,7 @@ from bluewhale_agent.verification.gate import (
 
 _SYSTEM_PROMPT = """You are BlueWhale, a local evidence-driven coding agent.
 Use the supplied tools to inspect and change only the selected workspace.
+For non-trivial tasks, call update_plan first and keep its active step current.
 Do not claim that a change works without local verification evidence.
 When the task is complete, respond with a concise factual summary and no tool calls.
 """
@@ -103,6 +109,7 @@ class AgentLoop:
         permission_mode: PermissionMode = PermissionMode.BALANCED,
         initial_history: Sequence[Message] = (),
         initial_observations: Sequence[Observation] = (),
+        instruction_queue: RuntimeInstructionQueue | None = None,
     ) -> None:
         self._run_id = run_id
         self._provider = provider
@@ -110,9 +117,12 @@ class AgentLoop:
         self._cancel_event = cancel_event or asyncio.Event()
         self._clock = clock
         self._paths = WorkspacePaths(workspace)
+        self._ledger = EvidenceLedger()
+        self._active_step_id: str | None = None
         self._context = ToolContext(
             paths=self._paths,
             command_timeout_seconds=self._limits.command_timeout_seconds,
+            command_network_allowed=permission_mode is PermissionMode.FULL,
         )
         self._registry = ToolRegistry(
             tools=[
@@ -123,6 +133,7 @@ class AgentLoop:
                 ApplyPatchTool(),
                 GetDiffTool(),
                 RunCommandTool(),
+                UpdatePlanTool(self._ledger),
             ],
             context=self._context,
             permission_policy=PermissionPolicy(paths=self._paths, mode=permission_mode),
@@ -130,7 +141,7 @@ class AgentLoop:
         )
         self._context_manager = ContextManager(max_chars=max_context_chars)
         self._workspace_map = WorkspaceMapBuilder(self._paths)
-        self._ledger = EvidenceLedger()
+        self._project_instructions = load_project_instructions(self._paths.root)
         self._gate = VerificationGate(max_repair_attempts=self._limits.max_repair_attempts)
         self._store = trajectory or TrajectoryStore(self._paths.root, run_id)
         if self._store.run_id != run_id:
@@ -148,6 +159,7 @@ class AgentLoop:
         self._final_answer: str | None = None
         self._verification: VerificationOutcome | None = None
         self._verification_action = 0
+        self._instruction_queue = instruction_queue or RuntimeInstructionQueue()
 
     async def run(self, task: str) -> AgentRunResult:
         """Execute until a deterministic terminal condition is reached."""
@@ -162,9 +174,16 @@ class AgentLoop:
         try:
             while True:
                 response = await self._request_model()
-                self._record_response(response)
                 if response.tool_calls:
+                    self._record_response(response)
                     await self._execute_actions(response.tool_calls)
+                    self._deliver_pending_instructions()
+                    continue
+
+                pending = self._instruction_queue.drain()
+                self._record_response(response, intermediate=bool(pending))
+                if pending:
+                    self._deliver_instructions(pending)
                     continue
 
                 if not self._context.changeset.changes:
@@ -184,9 +203,16 @@ class AgentLoop:
         while True:
             self._guard_model_call()
             try:
-                response = await self._provider.complete(
-                    self._build_messages(), self._registry.schemas()
-                )
+                messages = self._build_messages()
+                tools = self._registry.schemas()
+                stream = getattr(self._provider, "stream", None)
+                if callable(stream):
+                    response = cast(
+                        ModelResponse,
+                        await stream(messages, tools, self._record_delta),
+                    )
+                else:
+                    response = await self._provider.complete(messages, tools)
             except ModelProtocolError as error:
                 self._state_required().record_model_call()
                 self._consecutive_format_errors += 1
@@ -205,6 +231,9 @@ class AgentLoop:
             self._consecutive_format_errors = 0
             return response
 
+    def _record_delta(self, delta: ModelDelta) -> None:
+        self._emit(EventKind.MODEL_DELTA, delta.model_dump(mode="json"))
+
     def _build_messages(self) -> list[Message]:
         working_set = {change.path: change.after for change in self._context.changeset.changes}
         return self._context_manager.build(
@@ -217,9 +246,10 @@ class AgentLoop:
             history=self._history,
             observations=self._observations,
             prior_history=self._prior_history,
+            project_instructions=self._project_instructions,
         )
 
-    def _record_response(self, response: ModelResponse) -> None:
+    def _record_response(self, response: ModelResponse, *, intermediate: bool = False) -> None:
         message = Message(
             role=MessageRole.ASSISTANT,
             content=response.content,
@@ -237,8 +267,22 @@ class AgentLoop:
                 "reasoning_content": response.reasoning_content,
                 "finish_reason": response.finish_reason,
                 "tool_calls": [item.model_dump(mode="json") for item in response.tool_calls],
+                "intermediate": intermediate,
             },
         )
+
+    def _deliver_pending_instructions(self) -> None:
+        self._deliver_instructions(self._instruction_queue.drain())
+
+    def _deliver_instructions(self, instructions: Sequence[RuntimeInstruction]) -> None:
+        for instruction in instructions:
+            self._prior_history.append(
+                Message(role=MessageRole.USER, content=instruction.content)
+            )
+            self._emit(
+                EventKind.INSTRUCTION_DELIVERED,
+                {"instruction_id": instruction.id, "content": instruction.content},
+            )
 
     async def _execute_actions(
         self,
@@ -262,12 +306,24 @@ class AgentLoop:
                     "verification": verification,
                 },
             )
+            if action.tool_name == "update_plan":
+                active = action.arguments.get("active_step_id")
+                self._active_step_id = active if isinstance(active, str) else None
+                self._emit_plan()
+            step_ids = (
+                (self._active_step_id,)
+                if self._active_step_id is not None and action.tool_name != "update_plan"
+                else ()
+            )
             self._ledger.record(
                 action,
                 observation,
+                step_ids=step_ids,
                 source_event_id=stored.event.id,
                 verification=verification,
             )
+            if step_ids:
+                self._advance_plan_if_needed(step_ids[0])
             if not verification:
                 self._history.append(
                     Message(
@@ -370,6 +426,31 @@ class AgentLoop:
                 "status": state.status.value,
                 "steps_taken": state.steps_taken,
                 "repair_attempts": state.repair_attempts,
+            },
+        )
+
+    def _advance_plan_if_needed(self, step_id: str) -> None:
+        if self._ledger.get_step(step_id).status is not StepStatus.PASSED:
+            self._emit_plan()
+            return
+        next_step = next(
+            (step for step in self._ledger.steps if step.status is StepStatus.PENDING),
+            None,
+        )
+        self._active_step_id = next_step.id if next_step is not None else None
+        if next_step is not None:
+            self._ledger.mark_running(next_step.id)
+        self._emit_plan()
+
+    def _emit_plan(self) -> StoredEvent:
+        return self._emit(
+            EventKind.PLAN_UPDATED,
+            {
+                "active_step_id": self._active_step_id,
+                "steps": [step.model_dump(mode="json") for step in self._ledger.steps],
+                "evidence": [
+                    item.model_dump(mode="json") for item in self._ledger.evidence
+                ],
             },
         )
 

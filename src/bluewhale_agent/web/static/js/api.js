@@ -2,6 +2,11 @@ const EVENT_TYPES = [
   "run_started",
   "state_changed",
   "model_response",
+  "model_delta",
+  "plan_updated",
+  "instruction_queued",
+  "instruction_delivered",
+  "instruction_withdrawn",
   "action_requested",
   "approval_requested",
   "approval_resolved",
@@ -65,6 +70,20 @@ export function continueRun(runId, { task, workspace, workspaceGrantId, permissi
 
 export function stopRun(runId) {
   return request(`/api/runs/${encodeURIComponent(runId)}/stop`, { method: "POST" });
+}
+
+export function queueInstruction(runId, content) {
+  return request(`/api/runs/${encodeURIComponent(runId)}/instructions`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export function withdrawInstruction(runId, instructionId) {
+  return request(
+    `/api/runs/${encodeURIComponent(runId)}/instructions/${encodeURIComponent(instructionId)}`,
+    { method: "DELETE" },
+  );
 }
 
 export function undoChangeset(runId, changesetSequence) {

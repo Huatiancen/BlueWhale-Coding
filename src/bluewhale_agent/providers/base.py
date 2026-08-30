@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from collections.abc import Callable
+from typing import Literal, Protocol
+
+from pydantic import BaseModel, ConfigDict
 
 from bluewhale_agent.domain.models import Message, ModelResponse
 
@@ -20,6 +23,15 @@ class ProviderRequestError(RuntimeError):
         self.attempts = attempts
 
 
+class ModelDelta(BaseModel):
+    """One provider-neutral streaming fragment."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: Literal["reasoning", "answer", "tool_call"]
+    content: str
+
+
 class ModelProvider(Protocol):
     """Interface consumed by the future agent loop."""
 
@@ -31,3 +43,11 @@ class ModelProvider(Protocol):
         """Return one provider-neutral model response."""
         ...
 
+    async def stream(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, object]],
+        on_delta: Callable[[ModelDelta], None],
+    ) -> ModelResponse:
+        """Stream fragments and return the assembled response."""
+        ...

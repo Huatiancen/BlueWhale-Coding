@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
+from bluewhale_agent.agent.steering import RuntimeInstruction
 from bluewhale_agent.config import Settings
 from bluewhale_agent.history.conversation import ConversationHistoryError
 from bluewhale_agent.history.repository import HistoryRepository
@@ -38,6 +39,7 @@ from bluewhale_agent.web.schemas import (
     RunContinueRequest,
     RunCreateRequest,
     RunResponse,
+    RuntimeInstructionRequest,
     WorkspaceFileResponse,
 )
 from bluewhale_agent.web.sessions import (
@@ -246,6 +248,35 @@ def create_app(
         except RunConflictError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         return session.response()
+
+    @app.post(
+        "/api/runs/{run_id}/instructions",
+        response_model=RuntimeInstruction,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def queue_instruction(
+        run_id: str, request: RuntimeInstructionRequest
+    ) -> RuntimeInstruction:
+        try:
+            return manager.queue_instruction(run_id, request.content)
+        except RunNotFoundError as error:
+            raise HTTPException(status_code=404, detail=f"Unknown run: {run_id}") from error
+        except RunConflictError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.delete(
+        "/api/runs/{run_id}/instructions/{instruction_id}",
+        response_model=RuntimeInstruction,
+    )
+    async def withdraw_instruction(
+        run_id: str, instruction_id: str
+    ) -> RuntimeInstruction:
+        try:
+            return manager.withdraw_instruction(run_id, instruction_id)
+        except RunNotFoundError as error:
+            raise HTTPException(status_code=404, detail=f"Unknown run: {run_id}") from error
+        except RunConflictError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post(
         "/api/runs/{run_id}/changesets/{changeset_sequence}/undo",

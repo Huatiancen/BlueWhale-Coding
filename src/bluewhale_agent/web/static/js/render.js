@@ -27,6 +27,7 @@ export function renderWorkspace(elements, snapshot, callbacks) {
     callbacks.onCopyError,
     callbacks.onSelectArtifact,
     callbacks.onUndoChangeset,
+    callbacks.onWithdrawInstruction,
   );
   renderApprovalDock(elements, events, run, callbacks.onResolveApproval);
 }
@@ -124,7 +125,7 @@ function renderRunHeader(elements, run) {
   elements.runStatus.className = `run-status ${run.status}`;
   const active = !run.historical && ACTIVE_STATUSES.has(run.status);
   elements.stopButton.hidden = !active;
-  elements.submitButton.hidden = active;
+  elements.submitButton.hidden = false;
 }
 
 function renderConversation(
@@ -134,6 +135,7 @@ function renderConversation(
   onCopyError,
   onSelectArtifact,
   onUndoChangeset,
+  onWithdrawInstruction,
 ) {
   elements.conversation.replaceChildren();
   elements.conversationEmpty.hidden = Boolean(run);
@@ -146,6 +148,16 @@ function renderConversation(
         element("p", "", entry.content),
         createMessageCopyButton(entry.content, { onError: onCopyError }),
       );
+      if (entry.queued && entry.instructionId) {
+        const withdraw = element("button", "instruction-withdraw", "撤回");
+        withdraw.type = "button";
+        withdraw.addEventListener("click", async () => {
+          withdraw.disabled = true;
+          const ok = await onWithdrawInstruction?.(entry.instructionId);
+          if (!ok) withdraw.disabled = false;
+        });
+        message.append(element("span", "instruction-state", "等待发送"), withdraw);
+      }
       elements.conversation.append(message);
     } else if (entry.kind === "work") {
       elements.conversation.append(createWorkDetails(entry));
@@ -314,6 +326,7 @@ function createWorkDetails(work) {
   const verification = events.findLast(
     (stored) => stored.event.kind === "verification_finished",
   );
+  const plan = events.findLast((stored) => stored.event.kind === "plan_updated");
   const unmatchedFailures = events.filter((stored) => {
     if (stored.event.kind !== "observation_received") return false;
     const observation = stored.event.payload.observation;
@@ -335,6 +348,7 @@ function createWorkDetails(work) {
   wrapper.className = "work-disclosure";
   wrapper.append(workSummary(work));
   const list = element("ol", "work-list");
+  if (plan) list.append(planStep(plan));
   for (const narration of work.modelNarration || []) {
     list.append(modelProcessStep(narration));
   }
@@ -345,6 +359,7 @@ function createWorkDetails(work) {
   if (verification) list.append(verificationStep(verification));
   if (failedRun) list.append(runOutcomeStep(failedRun));
   if (
+    !plan &&
     !work.modelNarration?.length &&
     !actions.length &&
     !unmatchedFailures.length &&
@@ -356,6 +371,41 @@ function createWorkDetails(work) {
   wrapper.append(list);
   section.append(wrapper);
   return section;
+}
+
+function planStep(stored) {
+  const payload = stored.event.payload || {};
+  const steps = payload.steps || [];
+  const evidence = new Map(
+    (payload.evidence || []).map((item) => [item.id, item]),
+  );
+  const item = element("li", "work-step plan-step");
+  const details = document.createElement("details");
+  const summary = element("summary", "step-summary");
+  const completed = steps.filter((step) => step.status === "passed").length;
+  summary.append(
+    element("span", "step-dot"),
+    element("span", "step-title", "任务计划"),
+    element("span", "step-state", `${completed}/${steps.length}`),
+  );
+  const body = element("ol", "plan-list");
+  for (const step of steps) {
+    const row = element("li", `plan-item ${step.status || "pending"}`);
+    row.append(
+      element("span", "plan-status", step.status === "passed" ? "✓" : "•"),
+      element("span", "plan-description", step.description || step.id),
+    );
+    const claims = (step.evidence_ids || [])
+      .map((id) => evidence.get(id)?.claim)
+      .filter(Boolean);
+    if (claims.length) {
+      row.append(element("span", "plan-evidence", claims.join(" · ")));
+    }
+    body.append(row);
+  }
+  details.append(summary, body);
+  item.append(details);
+  return item;
 }
 
 function modelProcessStep(content) {
@@ -462,6 +512,7 @@ function humanToolLabel(toolName) {
     apply_patch: "修改文件",
     get_diff: "检查变更",
     run_command: "运行命令",
+    update_plan: "更新计划",
   };
   return labels[toolName] || "执行操作";
 }

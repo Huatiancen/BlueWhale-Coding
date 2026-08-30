@@ -54,8 +54,8 @@ async def test_root_serves_accessible_conversation_workspace(tmp_path: Path) -> 
     assert "TRAJECTORY" not in html
     assert 'aria-live="polite"' in html
     assert 'href="#workspace-main"' in html
-    assert 'href="/static/styles.css?v=codex-ui-2"' in html
-    assert 'type="module" src="/static/js/app.js?v=codex-ui-2"' in html
+    assert 'href="/static/styles.css?v=iteration-2"' in html
+    assert 'type="module" src="/static/js/app.js?v=iteration-2"' in html
     assert 'id="open-project"' in html
     assert 'id="desktop-project"' in html
     assert 'id="permission-trigger"' in html

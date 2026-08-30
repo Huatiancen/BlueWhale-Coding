@@ -22,6 +22,7 @@ from bluewhale_agent.runtime.command_plan import (
     parse_command_plan,
 )
 from bluewhale_agent.runtime.permissions import is_interactive_command
+from bluewhale_agent.runtime.sandbox import CommandSandbox, command_sandbox
 from bluewhale_agent.tools.base import BaseTool, ToolContext, ToolExecutionError, ToolOutput
 
 
@@ -77,12 +78,14 @@ class CommandRuntime:
         workspace: Path,
         artifact_directory: Path,
         max_output_bytes: int,
+        sandbox: CommandSandbox | None = None,
     ) -> None:
         if max_output_bytes <= 0:
             raise ValueError("max_output_bytes must be positive")
         self._workspace = workspace
         self._artifact_directory = artifact_directory
         self._max_output_bytes = max_output_bytes
+        self._sandbox = sandbox or command_sandbox(workspace)
 
     async def run(self, command: str, timeout_seconds: float) -> ToolOutput:
         try:
@@ -100,6 +103,11 @@ class CommandRuntime:
         deadline = started + timeout_seconds
         environment = self._sanitized_environment()
         environment["PYTHONPYCACHEPREFIX"] = str(artifact.with_suffix(".pycache"))
+        command_tmp = self._workspace / ".bluewhale" / "tmp"
+        command_tmp.mkdir(parents=True, exist_ok=True)
+        environment.update(
+            {"TMPDIR": str(command_tmp), "TMP": str(command_tmp), "TEMP": str(command_tmp)}
+        )
         step_metadata: list[dict[str, object]] = []
         last_exit_code: int | None = None
         last_argv: tuple[str, ...] = plan.steps[0].argv
@@ -213,7 +221,7 @@ class CommandRuntime:
         environment: dict[str, str],
     ) -> tuple[int | None, bool]:
         process = await asyncio.create_subprocess_exec(
-            *argv,
+            *self._sandbox.wrap(argv),
             cwd=self._workspace,
             env=environment,
             stdin=asyncio.subprocess.DEVNULL,
@@ -267,7 +275,7 @@ class CommandRuntime:
         try:
             for index, argv in enumerate(commands):
                 process = await asyncio.create_subprocess_exec(
-                    *argv,
+                    *self._sandbox.wrap(argv),
                     cwd=self._workspace,
                     env=environment,
                     stdin=(
@@ -477,5 +485,9 @@ class RunCommandTool(BaseTool):
             workspace=context.paths.root,
             artifact_directory=context.paths.root / ".bluewhale" / "artifacts" / "commands",
             max_output_bytes=context.max_command_output_bytes,
+            sandbox=command_sandbox(
+                context.paths.root,
+                allow_network=context.command_network_allowed,
+            ),
         )
         return await runtime.run(request.command, timeout)

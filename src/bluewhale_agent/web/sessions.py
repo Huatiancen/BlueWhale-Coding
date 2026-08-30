@@ -13,6 +13,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from bluewhale_agent.agent.loop import AgentLoop, AgentRunResult
+from bluewhale_agent.agent.steering import RuntimeInstruction, RuntimeInstructionQueue
 from bluewhale_agent.domain.events import EventKind, RunEvent
 from bluewhale_agent.domain.models import Action, Limits, RunStatus
 from bluewhale_agent.history.conversation import restore_conversation
@@ -58,6 +59,7 @@ class RunSession:
     cancel_event: asyncio.Event
     trajectory: TrajectoryStore
     event_bus: EventBus
+    instruction_queue: RuntimeInstructionQueue
     status: RunStatus = RunStatus.INITIALIZING
     background: asyncio.Task[None] | None = None
     result: AgentRunResult | None = None
@@ -180,6 +182,7 @@ class SessionManager:
                 cancel_event=cancel_event,
                 trajectory=trajectory,
                 event_bus=event_bus,
+                instruction_queue=RuntimeInstructionQueue(),
                 status=RunStatus.RUNNING,
             )
             if self._history is not None:
@@ -214,6 +217,7 @@ class SessionManager:
                 event_sink=lambda stored: self._record_event(session, stored),
                 approval_handler=approval_handler,
                 permission_mode=request.permission_mode,
+                instruction_queue=session.instruction_queue,
             )
             self._sessions[run_id] = session
             session.background = asyncio.create_task(self._execute(session, loop, request.task))
@@ -280,6 +284,7 @@ class SessionManager:
                 cancel_event=cancel_event,
                 trajectory=trajectory,
                 event_bus=event_bus,
+                instruction_queue=RuntimeInstructionQueue(),
                 status=RunStatus.RUNNING,
             )
 
@@ -298,6 +303,7 @@ class SessionManager:
                 permission_mode=request.permission_mode,
                 initial_history=seed.messages,
                 initial_observations=seed.observations,
+                instruction_queue=session.instruction_queue,
             )
             self._sessions[run_id] = session
             session.background = asyncio.create_task(self._execute(session, loop, request.task))
@@ -346,6 +352,16 @@ class SessionManager:
         background = session.background
         if background is None or background.done():
             return session
+        for instruction in session.instruction_queue.drain():
+            self._publish(
+                session,
+                EventKind.INSTRUCTION_WITHDRAWN,
+                {
+                    "instruction_id": instruction.id,
+                    "content": instruction.content,
+                    "reason": "run_stopped",
+                },
+            )
         pending = self.approvals.pending_for_run(run_id)
         self.approvals.cancel_run(run_id)
         for approval in pending:
@@ -356,6 +372,34 @@ class SessionManager:
         with suppress(asyncio.CancelledError):
             await background
         return session
+
+    def queue_instruction(self, run_id: str, content: str) -> RuntimeInstruction:
+        session = self.get(run_id)
+        if isinstance(session, HistoricalSession) or not self._is_active(session):
+            raise RunConflictError("Instructions can only be queued while a task is running")
+        instruction = session.instruction_queue.enqueue(content)
+        self._publish(
+            session,
+            EventKind.INSTRUCTION_QUEUED,
+            {"instruction": instruction.model_dump(mode="json")},
+        )
+        return instruction
+
+    def withdraw_instruction(
+        self, run_id: str, instruction_id: str
+    ) -> RuntimeInstruction:
+        session = self.get(run_id)
+        if isinstance(session, HistoricalSession):
+            raise RunConflictError("Historical runs are read-only")
+        instruction = session.instruction_queue.withdraw(instruction_id)
+        if instruction is None:
+            raise RunConflictError("Instruction was already delivered or does not exist")
+        self._publish(
+            session,
+            EventKind.INSTRUCTION_WITHDRAWN,
+            {"instruction_id": instruction.id},
+        )
+        return instruction
 
     async def undo_changeset(self, run_id: str, changeset_sequence: int) -> StoredEvent:
         """Safely revert one persisted change set and record the result."""

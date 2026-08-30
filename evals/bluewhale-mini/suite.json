@@ -1,0 +1,26 @@
+{
+  "name": "bluewhale-mini",
+  "cases": [
+    {
+      "id": "calculator-boundary",
+      "task": "修复 calculator.py 中除法边界行为，运行现有测试并确保除数为零时抛出 ValueError。不要修改测试。",
+      "workspace": "cases/calculator/workspace",
+      "hidden_test": "cases/calculator/hidden_test.py",
+      "expected_paths": ["calculator.py"]
+    },
+    {
+      "id": "slug-normalization",
+      "task": "修复 slug.py，使 slugify 能稳定处理连续空白、标点和首尾分隔符。运行现有测试，不要修改测试。",
+      "workspace": "cases/slug/workspace",
+      "hidden_test": "cases/slug/hidden_test.py",
+      "expected_paths": ["slug.py"]
+    },
+    {
+      "id": "boolean-config",
+      "task": "修复 config.py 的布尔值解析，只接受常见真值和假值，非法输入应抛出 ValueError。运行现有测试，不要修改测试。",
+      "workspace": "cases/config/workspace",
+      "hidden_test": "cases/config/hidden_test.py",
+      "expected_paths": ["config.py"]
+    }
+  ]
+}
