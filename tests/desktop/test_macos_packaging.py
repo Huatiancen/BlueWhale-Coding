@@ -57,6 +57,10 @@ def test_packaging_script_builds_finder_launchable_app(tmp_path: Path) -> None:
         info = plistlib.load(stream)
     assert info["CFBundleExecutable"] == "BlueWhale"
     assert info["CFBundleIdentifier"] == "com.bluewhale.coding-agent"
+    assert info["CFBundleIconFile"] == "BlueWhale.icns"
+    icon = resources / "BlueWhale.icns"
+    assert icon.is_file()
+    assert icon.stat().st_size > 0
     assert (resources / "source-root.txt").read_text(encoding="utf-8").strip() == str(
         REPOSITORY.resolve()
     )

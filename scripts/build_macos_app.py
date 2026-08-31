@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import plistlib
+import shutil
 import stat
 from pathlib import Path
 
@@ -48,6 +49,9 @@ def build_app(output: Path, source_root: Path) -> Path:
     source_root = source_root.resolve(strict=True)
     if output.exists():
         raise FileExistsError(f"Refusing to overwrite existing path: {output}")
+    icon = source_root / "assets" / "macos" / "BlueWhale.icns"
+    if not icon.is_file():
+        raise FileNotFoundError(f"Missing application icon: {icon}")
     contents = output / "Contents"
     macos = contents / "MacOS"
     resources = contents / "Resources"
@@ -59,6 +63,7 @@ def build_app(output: Path, source_root: Path) -> Path:
         "CFBundleDisplayName": "BlueWhale",
         "CFBundleExecutable": "BlueWhale",
         "CFBundleIdentifier": "com.bluewhale.coding-agent",
+        "CFBundleIconFile": "BlueWhale.icns",
         "CFBundleInfoDictionaryVersion": "6.0",
         "CFBundleName": "BlueWhale",
         "CFBundlePackageType": "APPL",
@@ -73,6 +78,7 @@ def build_app(output: Path, source_root: Path) -> Path:
     launcher.write_text(LAUNCHER, encoding="utf-8")
     launcher.chmod(launcher.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     (resources / "source-root.txt").write_text(f"{source_root}\n", encoding="utf-8")
+    shutil.copy2(icon, resources / "BlueWhale.icns")
     return output
 
 
