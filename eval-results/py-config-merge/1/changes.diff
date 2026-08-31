@@ -1,0 +1,9 @@
+--- a/config.py
++++ b/config.py
+@@ -1,4 +1,4 @@
+ def merge_config(defaults: dict[str, object], user: dict[str, object]) -> dict[str, object]:
+-    result = user.copy()
+-    result.update(defaults)
++    result = defaults.copy()
++    result.update(user)
+     return result

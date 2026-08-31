@@ -107,12 +107,15 @@ class PermissionPolicy:
         try:
             plan = parse_command_plan(command)
         except CommandPlanError as exc:
-            decision = (
-                PermissionDecision.DENY
-                if self._mode is PermissionMode.FULL
-                else PermissionDecision.ASK
+            if self._mode is not PermissionMode.FULL:
+                return PermissionResult(
+                    decision=PermissionDecision.ASK,
+                    reason=f"命令语法需要确认，执行时将由安全运行时校验：{exc}",
+                )
+            return PermissionResult(
+                decision=PermissionDecision.ALLOW,
+                reason=f"命令语法将由安全运行时返回结构化错误：{exc}",
             )
-            return PermissionResult(decision=decision, reason=str(exc))
 
         results = [
             self._evaluate_argv(argv)

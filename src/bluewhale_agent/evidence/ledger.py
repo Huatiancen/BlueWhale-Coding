@@ -8,6 +8,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from bluewhale_agent.context.instructions import InstructionDocument
 from bluewhale_agent.domain.models import Action, Observation, ObservationStatus
 
 
@@ -19,6 +20,7 @@ class EvidenceKind(StrEnum):
     FILE_DIFF = "file_diff"
     COMMAND_RESULT = "command_result"
     TEST_RESULT = "test_result"
+    INSTRUCTION_RULE = "instruction_rule"
 
 
 class StepRequirement(StrEnum):
@@ -183,6 +185,30 @@ class EvidenceLedger:
 
         if statement:
             self._model_statements.append(statement)
+
+    def record_instruction_sources(
+        self,
+        action_id: str,
+        documents: Sequence[InstructionDocument],
+    ) -> tuple[Evidence, ...]:
+        recorded: list[Evidence] = []
+        for document in documents:
+            identity = f"{action_id}:{document.source}"
+            item = Evidence(
+                id=f"instruction:{hashlib.sha256(identity.encode()).hexdigest()[:20]}",
+                kind=EvidenceKind.INSTRUCTION_RULE,
+                source_event_id=action_id,
+                claim=f"Applied project instructions from {document.source}",
+                verified=True,
+                metadata={
+                    "action_id": action_id,
+                    "source": document.source,
+                    "scope": document.scope,
+                    "summary": document.summary,
+                },
+            )
+            recorded.append(self._evidence.setdefault(item.id, item))
+        return tuple(recorded)
 
     def record(
         self,

@@ -132,8 +132,53 @@ def restore_conversation(events: list[StoredEvent]) -> ConversationSeed:
                 )
             pending_actions.clear()
 
-    _require_no_pending(pending_actions, None)
+    if pending_actions:
+        _append_recovered_observations(
+            pending_actions,
+            messages,
+            observations,
+            reason="app_interrupted",
+        )
+        pending_actions.clear()
     return ConversationSeed(messages=tuple(messages), observations=tuple(observations))
+
+
+def _append_recovered_observations(
+    pending_actions: set[str],
+    messages: list[Message],
+    observations: list[Observation],
+    *,
+    reason: str,
+) -> None:
+    actions = {
+        action.id: action
+        for message in messages
+        for action in message.tool_calls
+        if action.id in pending_actions
+    }
+    retry_safe_tools = {"list_files", "read_file", "search_text", "get_diff"}
+    for action_id in sorted(pending_actions):
+        action = actions.get(action_id)
+        observation = Observation(
+            action_id=action_id,
+            status=ObservationStatus.ERROR,
+            summary=f"Previous tool call ended without a result: {reason}",
+            content="The previous run was interrupted before this tool returned.",
+            metadata={
+                "recovered": True,
+                "stop_reason": reason,
+                "retry_safe": action is not None and action.tool_name in retry_safe_tools,
+            },
+            duration_ms=0,
+        )
+        observations.append(observation)
+        messages.append(
+            Message(
+                role=MessageRole.TOOL,
+                content=observation.model_dump_json(),
+                tool_call_id=action_id,
+            )
+        )
 
 
 def _actions(value: object, sequence: int) -> tuple[Action, ...]:

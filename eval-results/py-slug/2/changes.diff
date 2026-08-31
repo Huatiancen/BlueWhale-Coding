@@ -1,0 +1,27 @@
+--- a/slug.py
++++ b/slug.py
+@@ -2,4 +2,4 @@
+ 
+ 
+ def slugify(value: str) -> str:
+-    return re.sub(r"\s", "-", value.lower()).strip("-")
++    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+--- a/test_slug.py
++++ b/test_slug.py
+@@ -7,6 +7,16 @@
+     def test_collapses_spaces(self) -> None:
+         self.assertEqual(slugify("Blue  Whale"), "blue-whale")
+ 
++    def test_lowercase(self) -> None:
++        self.assertEqual(slugify("Hello WORLD"), "hello-world")
++
++    def test_collapses_punctuation(self) -> None:
++        self.assertEqual(slugify("Hello, World!"), "hello-world")
++
++    def test_strips_edge_hyphens(self) -> None:
++        self.assertEqual(slugify("  Blue  Whale  "), "blue-whale")
++        self.assertEqual(slugify("...Blue...Whale..."), "blue-whale")
++
+ 
+ if __name__ == "__main__":
+     unittest.main()

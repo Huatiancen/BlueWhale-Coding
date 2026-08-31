@@ -1,0 +1,11 @@
+--- a/trim.c
++++ b/trim.c
+@@ -5,4 +5,8 @@
+     char *start = value;
+     while (*start && isspace((unsigned char)*start)) start++;
+     if (start != value) memmove(value, start, strlen(start) + 1);
++
++    size_t len = strlen(value);
++    while (len > 0 && isspace((unsigned char)value[len - 1]))
++        value[--len] = '\0';
+ }

@@ -4,6 +4,7 @@ const EVENT_TYPES = [
   "model_response",
   "model_delta",
   "plan_updated",
+  "instructions_applied",
   "instruction_queued",
   "instruction_delivered",
   "instruction_withdrawn",
@@ -14,6 +15,7 @@ const EVENT_TYPES = [
   "verification_finished",
   "changeset_recorded",
   "changeset_reverted",
+  "changeset_files_reverted",
   "run_finished",
 ];
 
@@ -90,6 +92,13 @@ export function undoChangeset(runId, changesetSequence) {
   return request(
     `/api/runs/${encodeURIComponent(runId)}/changesets/${encodeURIComponent(changesetSequence)}/undo`,
     { method: "POST" },
+  );
+}
+
+export function undoChangesetFiles(runId, changesetSequence, paths) {
+  return request(
+    `/api/runs/${encodeURIComponent(runId)}/changesets/${encodeURIComponent(changesetSequence)}/undo-files`,
+    { method: "POST", body: JSON.stringify({ paths }) },
   );
 }
 

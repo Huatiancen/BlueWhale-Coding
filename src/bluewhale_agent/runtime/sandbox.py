@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -28,15 +30,23 @@ class SeatbeltSandbox:
 
     executable = "/usr/bin/sandbox-exec"
 
-    def __init__(self, *, workspace: Path, allow_network: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        workspace: Path,
+        allow_network: bool = False,
+        executable_lookup: Callable[[str], str | None] = shutil.which,
+    ) -> None:
         self._workspace = workspace.resolve()
         self._allow_network = allow_network
+        self._executable_lookup = executable_lookup
         self.profile = self._build_profile()
 
     def wrap(self, argv: tuple[str, ...]) -> tuple[str, ...]:
-        return (self.executable, "-p", self.profile, *argv)
+        profile = self._build_profile(self._toolchain_read_roots(argv[0]))
+        return (self.executable, "-p", profile, *argv)
 
-    def _build_profile(self) -> str:
+    def _build_profile(self, extra_readable_roots: tuple[str, ...] = ()) -> str:
         workspace = self._literal(self._workspace)
         readable_roots = (
             "/System",
@@ -48,26 +58,47 @@ class SeatbeltSandbox:
             "/opt/homebrew",
             "/private/etc",
             "/private/var/db/timezone",
+            sys.prefix,
+            sys.base_prefix,
         )
-        read_rules = "\n".join(
-            f'  (subpath "{self._escape(path)}")' for path in readable_roots
+        allowed_subpaths = (*readable_roots, *extra_readable_roots, str(self._workspace))
+        ancestor_literals = sorted(
+            {
+                str(parent)
+                for root in allowed_subpaths
+                for parent in (Path(root), *Path(root).parents)
+            }
+        )
+        read_exceptions = "\n".join(
+            f'  (require-not (subpath "{self._escape(path)}"))'
+            for path in allowed_subpaths
+        )
+        read_exceptions += "\n" + "\n".join(
+            f'  (require-not (literal "{self._escape(path)}"))'
+            for path in ancestor_literals
         )
         network = "(allow network*)" if self._allow_network else "(deny network*)"
         return f"""(version 1)
-(deny default)
-(allow process*)
-(allow sysctl-read)
-(allow mach-lookup)
-(allow ipc-posix-shm)
-(allow file-read-metadata)
-(allow file-read*
-{read_rules}
-  (subpath "{workspace}"))
-(allow file-write*
-  (subpath "{workspace}")
-  (literal "/dev/null"))
+(allow default)
+(deny file-read-data
+ (require-all
+{read_exceptions}))
+(deny file-write*
+ (require-all
+  (require-not (subpath "{workspace}"))
+  (require-not (literal "/dev/null"))))
 {network}
 """
+
+    def _toolchain_read_roots(self, executable: str) -> tuple[str, ...]:
+        located = self._executable_lookup(executable)
+        if located is None:
+            return ()
+        requested = Path(located).expanduser().absolute()
+        roots: set[Path] = {requested.resolve(strict=False)}
+        if requested.parent.name == "bin":
+            roots.add(requested.parent.parent.resolve(strict=False))
+        return tuple(sorted(map(str, roots)))
 
     @classmethod
     def _literal(cls, path: Path) -> str:

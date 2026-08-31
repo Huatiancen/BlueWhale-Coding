@@ -1,0 +1,14 @@
+--- a/cache.py
++++ b/cache.py
+@@ -7,7 +7,10 @@
+         self._items: OrderedDict[str, int] = OrderedDict()
+ 
+     def get(self, key: str) -> int | None:
+-        return self._items.get(key)
++        if key not in self._items:
++            return None
++        self._items.move_to_end(key)
++        return self._items[key]
+ 
+     def put(self, key: str, value: int) -> None:
+         self._items[key] = value

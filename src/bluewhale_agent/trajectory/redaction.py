@@ -13,7 +13,7 @@ _SECRET_KEY = re.compile(
 )
 _SK_TOKEN = re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b")
 _BEARER_HEADER = re.compile(
-    r"(Authorization\s*:\s*Bearer\s+)[^\s,;]+",
+    r"(Authorization\s*[:=]\s*Bearer\s+)[^\s,;]+",
     flags=re.IGNORECASE,
 )
 _ENV_SECRET = re.compile(
@@ -46,4 +46,3 @@ def _redact_text(text: str) -> str:
     text = _BEARER_HEADER.sub(r"\1[REDACTED]", text)
     text = _ENV_SECRET.sub(r"\1=[REDACTED]", text)
     return _SK_TOKEN.sub(REDACTED, text)
-

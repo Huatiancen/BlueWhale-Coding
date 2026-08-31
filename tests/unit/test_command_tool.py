@@ -360,6 +360,19 @@ def test_command_permission_modes(
     assert result.decision is expected
 
 
+def test_unsupported_shell_syntax_becomes_a_tool_error_not_permission_denial() -> None:
+    result = PermissionPolicy(mode=PermissionMode.FULL).evaluate(
+        Action(
+            id="1",
+            tool_name="run_command",
+            arguments={"command": "printf test > result.txt"},
+        )
+    )
+
+    assert result.decision is PermissionDecision.ALLOW
+    assert "运行时" in result.reason
+
+
 @pytest.mark.parametrize(
     "command",
     [

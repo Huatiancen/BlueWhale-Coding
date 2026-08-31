@@ -1,0 +1,8 @@
+--- a/report.py
++++ b/report.py
+@@ -2,4 +2,4 @@
+     if not tasks:
+         return 0.0
+     completed = sum(bool(task.get("done")) for task in tasks)
+-    return round(completed // len(tasks), 1)
++    return round(completed / len(tasks), 1)

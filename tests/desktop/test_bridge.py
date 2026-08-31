@@ -168,3 +168,49 @@ def test_picker_requires_window_and_normalizes_native_results() -> None:
 
     picker.attach(FakeWindow(None))
     assert picker.choose_directory() is None
+
+
+def test_preflight_uses_current_grant_without_exposing_secrets(tmp_path: Path) -> None:
+    project = tmp_path / "demo"
+    project.mkdir()
+    grants = WorkspaceGrantRegistry()
+    grants.grant(project)
+    seen: list[Path | None] = []
+    bridge = DesktopBridge(
+        picker=FakeFolderPicker(None),
+        grants=grants,
+        secrets=MemorySecretStore(),
+        has_active_run=lambda: False,
+        run_preflight=lambda workspace: seen.append(workspace) or {"ready": True},
+    )
+
+    assert bridge.preflight_state() == {"ok": True, "report": {"ready": True}}
+    assert seen == [project.resolve()]
+
+
+def test_export_diagnostics_requires_user_selected_folder(tmp_path: Path) -> None:
+    export_directory = tmp_path / "exports"
+    export_directory.mkdir()
+    written: list[Path] = []
+    bridge = DesktopBridge(
+        picker=FakeFolderPicker(export_directory),
+        grants=WorkspaceGrantRegistry(),
+        secrets=MemorySecretStore(),
+        has_active_run=lambda: False,
+        write_diagnostics=lambda destination: written.append(destination) or destination,
+    )
+
+    result = bridge.export_diagnostics()
+
+    expected = export_directory / "BlueWhale-Diagnostics.zip"
+    assert result == {"ok": True, "cancelled": False, "display_path": str(expected)}
+    assert written == [expected]
+
+    cancelled = DesktopBridge(
+        picker=FakeFolderPicker(None),
+        grants=WorkspaceGrantRegistry(),
+        secrets=MemorySecretStore(),
+        has_active_run=lambda: False,
+        write_diagnostics=lambda destination: destination,
+    ).export_diagnostics()
+    assert cancelled == {"ok": True, "cancelled": True}

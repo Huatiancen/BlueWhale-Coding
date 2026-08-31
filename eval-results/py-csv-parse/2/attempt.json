@@ -1,0 +1,15 @@
+{
+  "case_id": "py-csv-parse",
+  "attempt_index": 2,
+  "completed": true,
+  "public_verification": true,
+  "hidden_verification": true,
+  "repair_attempts": 0,
+  "duration_ms": 13247,
+  "changed_paths": [
+    "csv_tools.py"
+  ],
+  "trajectory_path": "py-csv-parse/2/trajectory.jsonl",
+  "diff_path": "py-csv-parse/2/changes.diff",
+  "failure_types": []
+}

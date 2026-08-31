@@ -2,6 +2,7 @@ from collections.abc import Sequence
 
 import pytest
 
+from bluewhale_agent.context.instructions import InstructionDocument
 from bluewhale_agent.domain.models import Action, Observation, ObservationStatus
 from bluewhale_agent.evidence.ledger import (
     Evidence,
@@ -289,3 +290,28 @@ def test_latest_failed_verification_invalidates_older_success() -> None:
     )
 
     assert ledger.get_step("test").status is StepStatus.RUNNING
+
+
+def test_instruction_sources_become_traceable_evidence() -> None:
+    ledger = EvidenceLedger()
+    documents = (
+        InstructionDocument(source="AGENTS.md", scope=".", content="Root rule"),
+        InstructionDocument(
+            source="src/AGENTS.md",
+            scope="src",
+            content="Use the source convention",
+        ),
+    )
+
+    evidence = ledger.record_instruction_sources("read-1", documents)
+
+    assert [item.kind for item in evidence] == [
+        EvidenceKind.INSTRUCTION_RULE,
+        EvidenceKind.INSTRUCTION_RULE,
+    ]
+    assert evidence[1].metadata == {
+        "action_id": "read-1",
+        "source": "src/AGENTS.md",
+        "scope": "src",
+        "summary": "Use the source convention",
+    }

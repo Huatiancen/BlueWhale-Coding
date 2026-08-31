@@ -1,0 +1,19 @@
+{
+  "case_id": "c-trim",
+  "attempt_index": 2,
+  "completed": false,
+  "public_verification": false,
+  "hidden_verification": true,
+  "repair_attempts": 0,
+  "duration_ms": 16529,
+  "changed_paths": [
+    "edge.c",
+    "trim.c"
+  ],
+  "trajectory_path": "c-trim/2/trajectory.jsonl",
+  "diff_path": "c-trim/2/changes.diff",
+  "failure_types": [
+    "unrelated_file_change",
+    "boundary_violation"
+  ]
+}

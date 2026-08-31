@@ -14,9 +14,25 @@ def test_seatbelt_wraps_argv_without_using_a_shell(tmp_path: Path) -> None:
 
     wrapped = sandbox.wrap(("python3", "-c", "print('ok')"))
 
-    assert wrapped[:3] == ("/usr/bin/sandbox-exec", "-p", sandbox.profile)
+    assert wrapped[:2] == ("/usr/bin/sandbox-exec", "-p")
+    assert f'(subpath "{tmp_path.resolve()}")' in wrapped[2]
     assert wrapped[3:] == ("python3", "-c", "print('ok')")
     assert "(allow network" not in sandbox.profile
+
+
+def test_seatbelt_allows_only_the_selected_user_toolchain_root(tmp_path: Path) -> None:
+    npm = tmp_path / "home" / ".nvm" / "versions" / "node" / "v24" / "bin" / "npm"
+    sandbox = SeatbeltSandbox(
+        workspace=tmp_path / "workspace",
+        executable_lookup=lambda name: str(npm) if name == "npm" else None,
+    )
+
+    wrapped = sandbox.wrap(("npm", "run", "test"))
+    dynamic_profile = wrapped[2]
+    home = tmp_path / "home"
+
+    assert f'(subpath "{npm.parent.parent}")' in dynamic_profile
+    assert f'(subpath "{home}")' not in dynamic_profile
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="Seatbelt is available on macOS")

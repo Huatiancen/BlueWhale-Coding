@@ -56,6 +56,12 @@ class RuntimeInstructionRequest(BaseModel):
     content: str = Field(min_length=1, max_length=20_000)
 
 
+class FileUndoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    paths: tuple[str, ...] = Field(min_length=1)
+
+
 class ApprovalResolveRequest(BaseModel):
     """Strict one-shot decision submitted by the local GUI."""
 

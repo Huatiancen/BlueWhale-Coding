@@ -245,6 +245,59 @@ async def test_changeset_undo_restores_files_and_cannot_be_repeated(
 
 
 @pytest.mark.asyncio
+async def test_changeset_file_undo_restores_only_selected_file(
+    completed_app: FastAPI,
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first.py"
+    second = tmp_path / "second.py"
+    first.write_text("before first\n", encoding="utf-8")
+    second.write_text("before second\n", encoding="utf-8")
+    await client.post(
+        "/api/runs",
+        json={"run_id": "file-undo-run", "task": "Change files", "workspace": "."},
+    )
+    await wait_for_terminal(client, "file-undo-run")
+    first.write_text("after first\n", encoding="utf-8")
+    second.write_text("after second\n", encoding="utf-8")
+    changes = ChangeSet()
+    changes.record("first.py", "before first\n", "after first\n")
+    changes.record("second.py", "before second\n", "after second\n")
+    session = completed_app.state.sessions.get("file-undo-run")
+    recorded = session.trajectory.append(
+        RunEvent(
+            run_id="file-undo-run",
+            kind=EventKind.CHANGESET_RECORDED,
+            payload=changes.snapshot().model_dump(mode="json"),
+        )
+    )
+
+    reverted = await client.post(
+        f"/api/runs/file-undo-run/changesets/{recorded.sequence}/undo-files",
+        json={"paths": ["second.py"]},
+    )
+    repeated = await client.post(
+        f"/api/runs/file-undo-run/changesets/{recorded.sequence}/undo-files",
+        json={"paths": ["second.py"]},
+    )
+    assert reverted.status_code == 200
+    assert reverted.json()["event"]["kind"] == "changeset_files_reverted"
+    assert reverted.json()["event"]["payload"]["files"] == ["second.py"]
+    assert first.read_text(encoding="utf-8") == "after first\n"
+    assert second.read_text(encoding="utf-8") == "before second\n"
+    assert repeated.status_code == 409
+    assert repeated.json()["detail"] == "second.py has already been reverted"
+    remaining = await client.post(
+        f"/api/runs/file-undo-run/changesets/{recorded.sequence}/undo"
+    )
+    assert remaining.status_code == 200
+    assert remaining.json()["event"]["payload"]["files"] == ["first.py"]
+    assert first.read_text(encoding="utf-8") == "before first\n"
+    assert second.read_text(encoding="utf-8") == "before second\n"
+
+
+@pytest.mark.asyncio
 async def test_sse_heartbeat_is_not_written_to_trajectory(tmp_path: Path) -> None:
     provider = BlockingProvider()
     manager = SessionManager(

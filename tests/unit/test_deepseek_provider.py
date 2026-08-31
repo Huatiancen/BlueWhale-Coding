@@ -8,7 +8,11 @@ from pydantic import SecretStr
 
 from bluewhale_agent.config import Settings
 from bluewhale_agent.domain.models import Limits, Message, MessageRole
-from bluewhale_agent.providers.base import ModelProtocolError, ProviderRequestError
+from bluewhale_agent.providers.base import (
+    ModelProtocolError,
+    ProviderRequestError,
+    StreamInterruptedError,
+)
 from bluewhale_agent.providers.deepseek import DeepSeekProvider
 
 
@@ -26,7 +30,7 @@ class FakeCompletions:
 
 
 class FakeStream:
-    def __init__(self, chunks: list[object]) -> None:
+    def __init__(self, chunks: list[object | BaseException]) -> None:
         self._chunks = chunks
 
     def __aiter__(self):
@@ -35,9 +39,12 @@ class FakeStream:
 
     async def __anext__(self) -> object:
         try:
-            return next(self._iterator)
+            item = next(self._iterator)
         except StopIteration as error:
             raise StopAsyncIteration from error
+        if isinstance(item, BaseException):
+            raise item
+        return item
 
 
 class FakeClient:
@@ -94,6 +101,22 @@ def stream_chunk(
         reasoning_content=reasoning_content,
         tool_calls=tool_calls or [],
     )
+    return SimpleNamespace(
+        choices=[SimpleNamespace(delta=delta, finish_reason=finish_reason)]
+    )
+
+
+def tool_stream_chunk(
+    *,
+    index: int,
+    call_id: str | None,
+    name: str | None,
+    arguments: str | None,
+    finish_reason: str | None = None,
+) -> object:
+    function = SimpleNamespace(name=name, arguments=arguments)
+    part = SimpleNamespace(index=index, id=call_id, function=function)
+    delta = SimpleNamespace(content=None, tool_calls=[part])
     return SimpleNamespace(
         choices=[SimpleNamespace(delta=delta, finish_reason=finish_reason)]
     )
@@ -164,6 +187,57 @@ async def test_stream_emits_reasoning_separately_and_assembles_final_answer() ->
     assert result.reasoning_content == "先检查"
     assert result.content == "修复完成"
     assert client.completions.requests[0]["stream"] is True
+
+
+@pytest.mark.asyncio
+async def test_stream_accepts_tool_chunks_without_reasoning_attribute() -> None:
+    chunks = FakeStream(
+        [
+            tool_stream_chunk(
+                index=0,
+                call_id="call-1",
+                name="read_file",
+                arguments='{"pa',
+            ),
+            tool_stream_chunk(
+                index=0,
+                call_id=None,
+                name=None,
+                arguments='th":"a.py"}',
+                finish_reason="tool_calls",
+            ),
+        ]
+    )
+    instance, _ = provider([chunks])
+
+    result = await instance.stream([], [], lambda _delta: None)
+
+    assert result.finish_reason == "tool_calls"
+    assert result.tool_calls[0].tool_name == "read_file"
+    assert result.tool_calls[0].arguments == {"path": "a.py"}
+
+
+@pytest.mark.asyncio
+async def test_stream_interruption_exposes_already_received_fragments() -> None:
+    chunks = FakeStream(
+        [
+            stream_chunk(reasoning_content="已检查"),
+            stream_chunk(content="部分回答"),
+            FakeConnectionError(),
+        ]
+    )
+    instance, _ = provider([chunks])
+    deltas = []
+
+    with pytest.raises(StreamInterruptedError) as captured:
+        await instance.stream([], [], deltas.append)
+
+    assert captured.value.partial_response.reasoning_content == "已检查"
+    assert captured.value.partial_response.content == "部分回答"
+    assert [(delta.kind, delta.content) for delta in deltas] == [
+        ("reasoning", "已检查"),
+        ("answer", "部分回答"),
+    ]
 
 
 @pytest.mark.asyncio

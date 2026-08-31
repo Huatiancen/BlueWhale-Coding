@@ -59,6 +59,8 @@ class DesktopBridge:
         has_active_run: Callable[[], bool],
         import_workspace_history: Callable[[Path], object] | None = None,
         resolve_history_workspace: Callable[[str], Path | None] | None = None,
+        run_preflight: Callable[[Path | None], dict[str, object]] | None = None,
+        write_diagnostics: Callable[[Path], Path] | None = None,
     ) -> None:
         self._picker = picker
         self._grants = grants
@@ -66,6 +68,8 @@ class DesktopBridge:
         self._has_active_run = has_active_run
         self._import_workspace_history = import_workspace_history
         self._resolve_history_workspace = resolve_history_workspace
+        self._run_preflight = run_preflight
+        self._write_diagnostics = write_diagnostics
 
     def select_workspace(self) -> dict[str, object]:
         if self._has_active_run():
@@ -146,3 +150,33 @@ class DesktopBridge:
         except SecretStoreError as error:
             return {"ok": False, "error": str(error)}
         return {"ok": True, "configured": False}
+
+    def preflight_state(self) -> dict[str, object]:
+        """Return a secret-free readiness report for the selected project."""
+        if self._run_preflight is None:
+            return {"ok": False, "error": "Startup checks are unavailable"}
+        grant = self._grants.current()
+        workspace = grant.path if grant is not None else None
+        try:
+            report = self._run_preflight(workspace)
+        except (OSError, RuntimeError):
+            return {"ok": False, "error": "Unable to complete startup checks"}
+        return {"ok": True, "report": report}
+
+    def export_diagnostics(self) -> dict[str, object]:
+        """Export diagnostics only after a native directory selection."""
+        if self._write_diagnostics is None:
+            return {"ok": False, "error": "Diagnostic export is unavailable"}
+        selected = self._picker.choose_directory()
+        if selected is None:
+            return {"ok": True, "cancelled": True}
+        destination = Path(selected).resolve(strict=False) / "BlueWhale-Diagnostics.zip"
+        try:
+            written = self._write_diagnostics(destination)
+        except (OSError, ValueError, RuntimeError):
+            return {"ok": False, "error": "Unable to export diagnostics"}
+        return {
+            "ok": True,
+            "cancelled": False,
+            "display_path": str(written),
+        }

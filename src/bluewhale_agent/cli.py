@@ -50,14 +50,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         suite_path = Path(args.suite).resolve(strict=True)
         suite = EvalSuite.load(suite_path)
         settings = Settings(workspace=suite_path.parent)
+        output_directory = Path(args.output).resolve()
         report = asyncio.run(
             EvalRunner(lambda: DeepSeekProvider(settings), model=settings.model).run(
                 suite,
                 suite_directory=suite_path.parent,
                 repeats=args.repeat,
+                output_directory=output_directory,
             )
         )
-        json_path, markdown_path = report.write(Path(args.output).resolve())
+        json_path, markdown_path = report.write(output_directory)
         print(f"BlueWhale evaluation complete: {json_path} and {markdown_path}")
         return 0
     workspace = Path(args.workspace).resolve(strict=False)

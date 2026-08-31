@@ -1,0 +1,11 @@
+--- a/group.js
++++ b/group.js
+@@ -1,7 +1,7 @@
+ function groupBy(items, key) {
+   const groups = {};
+   for (const item of items) {
+-    groups[item[key]] = [item];
++    (groups[item[key]] ??= []).push(item);
+   }
+   return groups;
+ }

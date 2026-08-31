@@ -1,0 +1,42 @@
+--- /dev/null
++++ b/extra_test.cpp
+@@ -0,0 +1,20 @@
++#include <cassert>
++#include <stdexcept>
++#include <vector>
++#include "stats.cpp"
++
++int main() {
++    std::vector<double> v{9.0, 1.0, 7.0, 3.0};
++    const std::vector<double> orig = v;
++    assert(median(v) == 5.0);
++    assert(median({1.0, 3.0, 7.0}) == 3.0);
++    assert(v == orig); // input not modified
++    bool threw = false;
++    try {
++        median(std::vector<double>{});
++    } catch (const std::invalid_argument&) {
++        threw = true;
++    }
++    assert(threw);
++    return 0;
++}
+--- a/stats.cpp
++++ b/stats.cpp
+@@ -1,7 +1,15 @@
++#include <algorithm>
+ #include <stdexcept>
+ #include <vector>
+ 
+ double median(const std::vector<double>& values) {
+     if (values.empty()) throw std::invalid_argument("empty values");
+-    return values[values.size() / 2];
++    std::vector<double> sorted = values;
++    std::sort(sorted.begin(), sorted.end());
++    const std::size_t n = sorted.size();
++    const std::size_t mid = n / 2;
++    if (n % 2 == 0) {
++        return (sorted[mid - 1] + sorted[mid]) / 2.0;
++    }
++    return sorted[mid];
+ }

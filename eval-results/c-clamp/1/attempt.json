@@ -1,0 +1,15 @@
+{
+  "case_id": "c-clamp",
+  "attempt_index": 1,
+  "completed": true,
+  "public_verification": true,
+  "hidden_verification": true,
+  "repair_attempts": 0,
+  "duration_ms": 7455,
+  "changed_paths": [
+    "clamp.c"
+  ],
+  "trajectory_path": "c-clamp/1/trajectory.jsonl",
+  "diff_path": "c-clamp/1/changes.diff",
+  "failure_types": []
+}

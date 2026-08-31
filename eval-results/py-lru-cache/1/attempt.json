@@ -1,0 +1,15 @@
+{
+  "case_id": "py-lru-cache",
+  "attempt_index": 1,
+  "completed": true,
+  "public_verification": true,
+  "hidden_verification": true,
+  "repair_attempts": 0,
+  "duration_ms": 8302,
+  "changed_paths": [
+    "cache.py"
+  ],
+  "trajectory_path": "py-lru-cache/1/trajectory.jsonl",
+  "diff_path": "py-lru-cache/1/changes.diff",
+  "failure_types": []
+}

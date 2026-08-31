@@ -26,6 +26,16 @@ class VerificationResultStatus(StrEnum):
     DENIED = "denied"
 
 
+class VerificationLevel(StrEnum):
+    """Evidence grade shown independently from the run's lifecycle status."""
+
+    UNVERIFIED = "unverified"
+    PARTIAL = "partial"
+    PUBLIC_PASSED = "public_passed"
+    FULL_PASSED = "full_passed"
+    FAILED = "failed"
+
+
 class VerificationResult(BaseModel):
     """One repository verification command and its normalized observation."""
 
@@ -46,6 +56,7 @@ class VerificationOutcome(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     passed: bool
+    level: VerificationLevel = VerificationLevel.UNVERIFIED
     stop_reason: StopReason
     rounds: int = Field(ge=0)
     repair_attempts: int = Field(ge=0)
@@ -53,11 +64,36 @@ class VerificationOutcome(BaseModel):
     latest_results: tuple[VerificationResult, ...] = ()
     fingerprints: tuple[str, ...] = ()
 
+    @property
+    def completion_claim_supported(self) -> bool:
+        return self.level in {
+            VerificationLevel.PUBLIC_PASSED,
+            VerificationLevel.FULL_PASSED,
+        }
+
+    def with_hidden_verification(self, passed: bool) -> VerificationOutcome:
+        if passed and self.passed:
+            return self.model_copy(update={"level": VerificationLevel.FULL_PASSED})
+        return self.model_copy(
+            update={
+                "passed": False,
+                "level": VerificationLevel.FAILED,
+                "stop_reason": StopReason.VERIFICATION_FAILED,
+            }
+        )
+
+
+class ChangeScopeAssessment(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    allowed: bool
+    unrelated_paths: tuple[str, ...] = ()
+
 
 class VerificationGate:
     """Run verification and stop bounded repair loops that make no progress."""
 
-    def __init__(self, *, max_repair_attempts: int = 2) -> None:
+    def __init__(self, *, max_repair_attempts: int = 3) -> None:
         if max_repair_attempts < 0:
             raise ValueError("max_repair_attempts must not be negative")
         self._max_repair_attempts = max_repair_attempts
@@ -71,6 +107,7 @@ class VerificationGate:
         if not commands:
             return VerificationOutcome(
                 passed=False,
+                level=VerificationLevel.UNVERIFIED,
                 stop_reason=StopReason.PARTIALLY_VERIFIED,
                 rounds=0,
                 repair_attempts=0,
@@ -181,6 +218,13 @@ class VerificationGate:
     ) -> VerificationOutcome:
         return VerificationOutcome(
             passed=passed,
+            level=(
+                VerificationLevel.PUBLIC_PASSED
+                if passed
+                else VerificationLevel.PARTIAL
+                if reason is StopReason.PARTIALLY_VERIFIED
+                else VerificationLevel.FAILED
+            ),
             stop_reason=reason,
             rounds=rounds,
             repair_attempts=repair_attempts,
@@ -202,6 +246,31 @@ def error_fingerprint(diagnostic: str) -> str:
     normalized = re.sub(r"\b\d+(?:\.\d+)?s\b", "<duration>", normalized)
     normalized = " ".join(normalized.split())
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def assess_change_scope(
+    *,
+    changed_paths: Sequence[str],
+    allowed_paths: Sequence[str],
+) -> ChangeScopeAssessment:
+    """Report changes outside exact files or explicitly allowed directory prefixes."""
+
+    normalized = tuple(
+        (path.strip("/"), path.endswith("/"))
+        for path in allowed_paths
+        if path.strip("/")
+    )
+    unrelated = tuple(
+        sorted(
+            path
+            for path in changed_paths
+            if not any(
+                path == allowed or (is_directory and path.startswith(f"{allowed}/"))
+                for allowed, is_directory in normalized
+            )
+        )
+    )
+    return ChangeScopeAssessment(allowed=not unrelated, unrelated_paths=unrelated)
 
 
 def _result_status(observation: Observation) -> VerificationResultStatus:

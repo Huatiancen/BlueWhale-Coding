@@ -9,6 +9,7 @@ import {
   resolveApproval,
   stopRun,
   undoChangeset,
+  undoChangesetFiles,
   withdrawInstruction,
 } from "./api.js";
 import {
@@ -139,6 +140,7 @@ subscribe((snapshot) => {
     onToggleProject: toggleProjectCollapsed,
     onSelectArtifact: openArtifact,
     onUndoChangeset: undoActiveChangeset,
+    onUndoFile: undoActiveFile,
     onWithdrawInstruction: withdrawQueuedInstruction,
   });
   updateControls();
@@ -278,6 +280,22 @@ async function undoActiveChangeset(changesetSequence) {
     addEvent(runId, storedEvent);
     closeArtifact();
     showNotice("已撤销该轮文件变更。");
+    return true;
+  } catch (error) {
+    showNotice(error.message, true);
+    return false;
+  }
+}
+
+async function undoActiveFile(changesetSequence, path) {
+  const runId = state.activeRunId;
+  if (!runId) return false;
+  hideNotice();
+  try {
+    const storedEvent = await undoChangesetFiles(runId, changesetSequence, [path]);
+    addEvent(runId, storedEvent);
+    closeArtifact();
+    showNotice(`已撤销 ${path} 的变更。`);
     return true;
   } catch (error) {
     showNotice(error.message, true);

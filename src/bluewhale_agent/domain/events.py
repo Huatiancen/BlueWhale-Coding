@@ -17,6 +17,7 @@ class EventKind(StrEnum):
     MODEL_RESPONSE = "model_response"
     MODEL_DELTA = "model_delta"
     PLAN_UPDATED = "plan_updated"
+    INSTRUCTIONS_APPLIED = "instructions_applied"
     INSTRUCTION_QUEUED = "instruction_queued"
     INSTRUCTION_DELIVERED = "instruction_delivered"
     INSTRUCTION_WITHDRAWN = "instruction_withdrawn"
@@ -27,6 +28,7 @@ class EventKind(StrEnum):
     VERIFICATION_FINISHED = "verification_finished"
     CHANGESET_RECORDED = "changeset_recorded"
     CHANGESET_REVERTED = "changeset_reverted"
+    CHANGESET_FILES_REVERTED = "changeset_files_reverted"
     RUN_FINISHED = "run_finished"
 
 

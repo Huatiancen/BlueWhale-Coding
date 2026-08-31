@@ -1,0 +1,50 @@
+--- /dev/null
++++ b/edge.c
+@@ -0,0 +1,34 @@
++#include <assert.h>
++#include <stdio.h>
++#include <string.h>
++
++void trim_in_place(char *value);
++
++int main(void) {
++    char a[] = "  blue whale  ";
++    trim_in_place(a);
++    assert(strcmp(a, "blue whale") == 0);
++
++    char b[] = "blue whale  \t ";
++    trim_in_place(b);
++    assert(strcmp(b, "blue whale") == 0);
++
++    char c[] = " \t\n ";
++    trim_in_place(c);
++    assert(strcmp(c, "") == 0);
++
++    char d[] = "  a  b  ";
++    trim_in_place(d);
++    assert(strcmp(d, "a  b") == 0);
++
++    char e[] = "blue";
++    trim_in_place(e);
++    assert(strcmp(e, "blue") == 0);
++
++    char f[] = "\t  hello\tworld  ";
++    trim_in_place(f);
++    assert(strcmp(f, "hello\tworld") == 0);
++
++    printf("all edge cases passed\n");
++    return 0;
++}
+--- a/trim.c
++++ b/trim.c
+@@ -5,4 +5,10 @@
+     char *start = value;
+     while (*start && isspace((unsigned char)*start)) start++;
+     if (start != value) memmove(value, start, strlen(start) + 1);
++
++    size_t len = strlen(value);
++    while (len > 0 && isspace((unsigned char)value[len - 1])) {
++        value[len - 1] = '\0';
++        len--;
++    }
+ }

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import sys
 import tempfile
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -102,6 +103,7 @@ class CommandRuntime:
         started = monotonic()
         deadline = started + timeout_seconds
         environment = self._sanitized_environment()
+        self._prefer_direct_macos_toolchain(environment)
         environment["PYTHONPYCACHEPREFIX"] = str(artifact.with_suffix(".pycache"))
         command_tmp = self._workspace / ".bluewhale" / "tmp"
         command_tmp.mkdir(parents=True, exist_ok=True)
@@ -454,6 +456,30 @@ class CommandRuntime:
             for key, value in os.environ.items()
             if not any(fragment in key.upper() for fragment in cls.SECRET_ENV_FRAGMENTS)
         }
+
+    @staticmethod
+    def _prefer_direct_macos_toolchain(environment: dict[str, str]) -> None:
+        """Avoid xcrun shims that need to write caches outside the workspace."""
+        if sys.platform != "darwin":
+            return
+        toolchain = Path("/Library/Developer/CommandLineTools/usr/bin")
+        if not toolchain.is_dir():
+            return
+        current = environment.get("PATH", "")
+        entries = current.split(os.pathsep) if current else []
+        insertion = next(
+            (
+                index
+                for index, entry in enumerate(entries)
+                if entry in {"/usr/bin", "/bin"}
+            ),
+            len(entries),
+        )
+        entries.insert(insertion, str(toolchain))
+        environment["PATH"] = os.pathsep.join(entries)
+        sdk = Path("/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk")
+        if sdk.is_dir():
+            environment["SDKROOT"] = str(sdk)
 
     @staticmethod
     def _summary(argv: tuple[str, ...], exit_code: int | None, timed_out: bool) -> str:

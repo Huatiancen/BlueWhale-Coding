@@ -24,8 +24,32 @@ class _UndoTarget:
 def undo_changeset(workspace: Path, snapshot: ChangeSetSnapshot) -> tuple[str, ...]:
     """Restore a snapshot only when every file still matches its recorded result."""
 
+    return undo_files(workspace, snapshot, tuple(item.path for item in snapshot.files))
+
+
+def undo_files(
+    workspace: Path,
+    snapshot: ChangeSetSnapshot,
+    selected_paths: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Restore selected snapshot files after validating the whole selection."""
+
+    if not selected_paths:
+        raise ChangeSetUndoError("Select at least one file to undo")
+    requested = set(selected_paths)
+    if len(requested) != len(selected_paths):
+        raise ChangeSetUndoError("Each file may be selected only once")
+    available = {change.path: change for change in snapshot.files}
+    missing = sorted(requested - set(available))
+    if missing:
+        raise ChangeSetUndoError(f"{missing[0]} is not part of this change set")
+
     paths = WorkspacePaths(workspace)
-    targets = tuple(_prepare_target(paths, change) for change in snapshot.files)
+    targets = tuple(
+        _prepare_target(paths, change)
+        for change in snapshot.files
+        if change.path in requested
+    )
     for target in targets:
         _validate_current_content(target)
 

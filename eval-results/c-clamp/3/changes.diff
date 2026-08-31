@@ -1,0 +1,10 @@
+--- a/clamp.c
++++ b/clamp.c
+@@ -1,5 +1,5 @@
+ int clamp_int(int value, int minimum, int maximum) {
+-    if (value < minimum) return maximum;
+-    if (value > maximum) return minimum;
++    if (value < minimum) return minimum;
++    if (value > maximum) return maximum;
+     return value;
+ }

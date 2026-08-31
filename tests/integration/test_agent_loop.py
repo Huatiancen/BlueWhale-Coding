@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from bluewhale_agent.agent.checkpoints import CheckpointPhase, RunCheckpoint, RunCheckpointStore
 from bluewhale_agent.agent.loop import AgentLoop
 from bluewhale_agent.domain.events import EventKind
 from bluewhale_agent.domain.models import (
@@ -20,7 +21,7 @@ from bluewhale_agent.domain.models import (
     StopReason,
 )
 from bluewhale_agent.evidence.ledger import EvidenceKind
-from bluewhale_agent.providers.base import ModelProtocolError
+from bluewhale_agent.providers.base import ModelProtocolError, StreamInterruptedError
 from bluewhale_agent.runtime.permissions import PermissionMode, PermissionResult
 from tests.fakes import FakeModelProvider
 
@@ -39,6 +40,119 @@ def response(
 
 def action(action_id: str, tool_name: str, **arguments: object) -> Action:
     return Action(id=action_id, tool_name=tool_name, arguments=arguments)
+
+
+class InterruptedStreamProvider:
+    async def stream(self, messages, tools, on_delta):
+        del messages, tools, on_delta
+        raise StreamInterruptedError(
+            ModelResponse(content="已完成部分检查。", finish_reason="interrupted")
+        )
+
+
+@pytest.mark.asyncio
+async def test_stream_interruption_preserves_partial_answer_and_failed_checkpoint(
+    tmp_path: Path,
+) -> None:
+    result = await AgentLoop(
+        run_id="interrupted-stream",
+        workspace=tmp_path,
+        provider=InterruptedStreamProvider(),
+        limits=Limits(max_api_retries=0),
+    ).run("检查项目")
+
+    assert result.stop_reason is StopReason.API_ERROR
+    assert result.final_answer == "已完成部分检查。"
+    checkpoint = RunCheckpointStore(tmp_path, "interrupted-stream").load_latest()
+    assert checkpoint is not None
+    assert checkpoint.phase is CheckpointPhase.FAILED
+
+
+class RecoveringStreamProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def stream(self, messages, tools, on_delta):
+        del messages, tools, on_delta
+        self.calls += 1
+        if self.calls == 1:
+            raise StreamInterruptedError(
+                ModelResponse(content="正在检查。", finish_reason="interrupted")
+            )
+        return response(content="检查完成。")
+
+
+@pytest.mark.asyncio
+async def test_stream_interruption_repairs_history_and_retries(tmp_path: Path) -> None:
+    provider = RecoveringStreamProvider()
+
+    result = await AgentLoop(
+        run_id="recover-stream",
+        workspace=tmp_path,
+        provider=provider,
+        limits=Limits(max_api_retries=1),
+    ).run("检查项目")
+
+    assert provider.calls == 2
+    assert result.stop_reason is StopReason.COMPLETED
+    assert result.final_answer == "检查完成。"
+
+
+@pytest.mark.asyncio
+async def test_resume_checkpoint_reconciles_pending_side_effect_without_replay(
+    tmp_path: Path,
+) -> None:
+    pending = action("write-pending", "write_file", path="app.py", content="changed\n")
+    store = RunCheckpointStore(tmp_path, "resume-pending")
+    checkpoint = store.save(
+        RunCheckpoint(
+            run_id="resume-pending",
+            task="修改 app.py",
+            phase=CheckpointPhase.TOOL_EXECUTING,
+            messages=(
+                Message(
+                    role=MessageRole.ASSISTANT,
+                    content=None,
+                    tool_calls=(pending,),
+                ),
+            ),
+            pending_action=pending,
+        )
+    )
+    provider = FakeModelProvider([response(content="已检查中断状态，无需重放。")])
+
+    result = await AgentLoop(
+        run_id="resume-pending",
+        workspace=tmp_path,
+        provider=provider,
+        resume_checkpoint=checkpoint,
+    ).run("继续")
+
+    sent = provider.calls[0][0]
+    assert any("修改 app.py" in (message.content or "") for message in sent)
+    assert any(
+        message.role is MessageRole.TOOL
+        and message.tool_call_id == "write-pending"
+        and "interrupted" in (message.content or "")
+        for message in sent
+    )
+    assert not (tmp_path / "app.py").exists()
+    assert result.stop_reason is StopReason.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_successful_run_finishes_with_completed_checkpoint(tmp_path: Path) -> None:
+    result = await AgentLoop(
+        run_id="checkpoint-complete",
+        workspace=tmp_path,
+        provider=FakeModelProvider([response(content="完成。")]),
+    ).run("解释项目")
+
+    assert result.stop_reason is StopReason.COMPLETED
+    checkpoint = RunCheckpointStore(tmp_path, "checkpoint-complete").load_latest()
+    assert checkpoint is not None
+    assert checkpoint.phase is CheckpointPhase.COMPLETED
+    assert checkpoint.messages[-1].content == "完成。"
 
 
 @pytest.mark.asyncio
@@ -106,6 +220,85 @@ async def test_read_then_answer_preserves_protocol_history_and_trajectory(
     assert events[0].event.kind is EventKind.RUN_STARTED
     assert events[-1].event.kind is EventKind.RUN_FINISHED
     assert [event.sequence for event in events] == list(range(1, len(events) + 1))
+
+
+@pytest.mark.asyncio
+async def test_out_of_scope_change_prevents_verified_completion(tmp_path: Path) -> None:
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_dummy.py").write_text(
+        "import unittest\n\n"
+        "class Dummy(unittest.TestCase):\n"
+        "    def test_ok(self): self.assertTrue(True)\n",
+        encoding="utf-8",
+    )
+    provider = FakeModelProvider(
+        [
+            response(
+                actions=(
+                    action("allowed", "write_file", path="allowed.py", content="ok = True\n"),
+                    action("outside", "write_file", path="outside.py", content="extra = True\n"),
+                )
+            ),
+            response(content="Implemented and verified."),
+        ]
+    )
+
+    result = await AgentLoop(
+        run_id="scope-gate",
+        workspace=tmp_path,
+        provider=provider,
+        allowed_change_paths=("allowed.py",),
+    ).run("Only modify allowed.py")
+
+    assert result.status is RunStatus.FAILED
+    assert result.stop_reason is StopReason.VERIFICATION_FAILED
+    assert result.verification is not None
+    assert result.verification.passed is False
+    assert result.verification.level.value == "failed"
+
+
+@pytest.mark.asyncio
+async def test_scoped_agents_rules_are_loaded_after_target_file_is_selected(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src"
+    source.mkdir()
+    (tmp_path / "AGENTS.md").write_text("Root convention.\n", encoding="utf-8")
+    (source / "AGENTS.md").write_text("Use pathlib in this directory.\n", encoding="utf-8")
+    (source / "app.py").write_text("value = 1\n", encoding="utf-8")
+    provider = FakeModelProvider(
+        [
+            response(actions=(action("read-scoped", "read_file", path="src/app.py"),)),
+            response(actions=(action("read-scoped-again", "read_file", path="src/app.py"),)),
+            response(content="文件已检查。"),
+        ]
+    )
+
+    result = await AgentLoop(
+        run_id="scoped-instructions",
+        workspace=tmp_path,
+        provider=provider,
+    ).run("检查 src/app.py")
+
+    second_context = "\n".join(message.content or "" for message in provider.calls[1][0])
+    assert "Root convention" in second_context
+    assert "Use pathlib in this directory" in second_context
+    applied = [
+        item.event.payload
+        for item in result.trajectory.events_after(0)
+        if item.event.kind is EventKind.INSTRUCTIONS_APPLIED
+    ]
+    assert applied[0]["action_id"] == "read-scoped"
+    assert [item["source"] for item in applied[0]["documents"]] == [
+        "AGENTS.md",
+        "src/AGENTS.md",
+    ]
+    assert [item.status for item in result.observations] == [
+        ObservationStatus.ERROR,
+        ObservationStatus.SUCCESS,
+    ]
+    assert result.final_answer == "文件已检查。"
 
 
 @pytest.mark.asyncio

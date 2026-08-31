@@ -1,0 +1,17 @@
+--- a/retry.js
++++ b/retry.js
+@@ -1,5 +1,13 @@
+ async function retry(operation, retries) {
+-  return operation();
++  let lastError;
++  for (let attempt = 0; attempt <= retries; attempt++) {
++    try {
++      return await operation();
++    } catch (error) {
++      lastError = error;
++    }
++  }
++  throw lastError;
+ }
+ 
+ module.exports = { retry };

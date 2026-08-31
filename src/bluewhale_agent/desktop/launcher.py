@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import platform as platform_module
 import secrets
 import sys
 from collections.abc import Callable
@@ -11,9 +12,12 @@ from typing import Any, Protocol
 
 from fastapi import FastAPI
 
+from bluewhale_agent import __version__
 from bluewhale_agent.config import Settings
 from bluewhale_agent.desktop.bridge import DesktopBridge, PyWebViewFolderPicker
+from bluewhale_agent.desktop.diagnostics import DiagnosticExporter
 from bluewhale_agent.desktop.grants import WorkspaceGrantRegistry
+from bluewhale_agent.desktop.preflight import PreflightRunner
 from bluewhale_agent.desktop.secrets import (
     KeyringSecretStore,
     SecretStore,
@@ -83,6 +87,23 @@ def run_desktop(
         file_dialog.FOLDER if file_dialog is not None else webview_module.FOLDER_DIALOG
     )
     picker = PyWebViewFolderPicker(folder_dialog_type)
+    preflight = PreflightRunner(secrets=selected_store, platform=selected_platform)
+    diagnostic_exporter = DiagnosticExporter(
+        version=__version__,
+        platform_name=platform_module.platform(),
+    )
+
+    def write_diagnostics(destination: Path) -> Path:
+        grant = grants.current()
+        workspace = grant.path if grant is not None else None
+        trajectory_summary, verification = _diagnostic_summaries(app.state.sessions)
+        return diagnostic_exporter.export(
+            destination,
+            preflight=preflight.run(workspace).as_dict(),
+            trajectory_summary=trajectory_summary,
+            verification=verification,
+        )
+
     bridge = DesktopBridge(
         picker=picker,
         grants=grants,
@@ -90,6 +111,8 @@ def run_desktop(
         has_active_run=app.state.sessions.has_active_run,
         import_workspace_history=app.state.sessions.import_workspace_history,
         resolve_history_workspace=app.state.sessions.workspace_for_run,
+        run_preflight=lambda workspace: preflight.run(workspace).as_dict(),
+        write_diagnostics=write_diagnostics,
     )
     selected_controller_factory = controller_factory or _create_server_controller
     controller = selected_controller_factory(app)
@@ -134,3 +157,57 @@ def _confirm_desktop_close(
         "停止任务并退出？",
         "BlueWhale 仍在执行任务。退出将停止任务并取消待审批操作。",
     )
+
+
+def _diagnostic_summaries(sessions: Any) -> tuple[dict[str, object], dict[str, object]]:
+    """Project the latest run into a bounded, source-free diagnostic summary."""
+    available = sessions.list()
+    if not available:
+        return {}, {}
+    latest = available[-1]
+    response = latest.response()
+    events = latest.trajectory.events_after(0)
+    counts: dict[str, int] = {}
+    for stored in events:
+        key = stored.event.kind.value
+        counts[key] = counts.get(key, 0) + 1
+    trajectory = {
+        "run_id": response.id,
+        "status": response.status.value,
+        "stop_reason": response.stop_reason.value if response.stop_reason is not None else None,
+        "verified": response.verified,
+        "steps_taken": response.steps_taken,
+        "repair_attempts": response.repair_attempts,
+        "event_count": len(events),
+        "event_kind_counts": counts,
+    }
+    verification: dict[str, object] = {}
+    for stored in reversed(events):
+        if stored.event.kind.value != "verification_finished":
+            continue
+        raw = stored.event.payload.get("outcome")
+        if not isinstance(raw, dict):
+            break
+        results = raw.get("latest_results")
+        safe_results: list[dict[str, object]] = []
+        if isinstance(results, list):
+            for result in results:
+                if not isinstance(result, dict):
+                    continue
+                safe_results.append(
+                    {
+                        "status": result.get("status"),
+                        "exit_code": result.get("exit_code"),
+                        "duration_ms": result.get("duration_ms"),
+                    }
+                )
+        verification = {
+            "passed": raw.get("passed"),
+            "level": raw.get("level"),
+            "stop_reason": raw.get("stop_reason"),
+            "rounds": raw.get("rounds"),
+            "repair_attempts": raw.get("repair_attempts"),
+            "results": safe_results,
+        }
+        break
+    return trajectory, verification

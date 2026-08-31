@@ -23,6 +23,18 @@ class ProviderRequestError(RuntimeError):
         self.attempts = attempts
 
 
+class StreamInterruptedError(ProviderRequestError):
+    """A stream failed after yielding data that must remain visible and recoverable."""
+
+    def __init__(self, partial_response: ModelResponse) -> None:
+        super().__init__(
+            "DeepSeek stream was interrupted after a partial response.",
+            status_code=None,
+            attempts=1,
+        )
+        self.partial_response = partial_response
+
+
 class ModelDelta(BaseModel):
     """One provider-neutral streaming fragment."""
 

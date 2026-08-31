@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { findPendingApproval } from "../../../src/bluewhale_agent/web/static/js/event-view.js";
+import {
+  findPendingApproval,
+  instructionEvidence,
+} from "../../../src/bluewhale_agent/web/static/js/event-view.js";
 
 function approvalRequested(id, status = "pending") {
   return {
@@ -62,4 +65,30 @@ test("returns an older request when only the newer request was resolved", () => 
   const second = approvalRequested("second");
 
   assert.equal(findPendingApproval([first, second, approvalResolved("second")]), first);
+});
+
+test("projects scoped instruction sources without exposing full rule text", () => {
+  const evidence = instructionEvidence([
+    {
+      event: {
+        kind: "instructions_applied",
+        payload: {
+          action_id: "read-1",
+          target: "src/app.py",
+          documents: [
+            { source: "AGENTS.md", scope: ".", summary: "Root rule" },
+            { source: "src/AGENTS.md", scope: "src", summary: "Source rule" },
+          ],
+        },
+      },
+    },
+  ]);
+
+  assert.deepEqual(evidence, [
+    {
+      actionId: "read-1",
+      target: "src/app.py",
+      sources: ["AGENTS.md", "src/AGENTS.md"],
+    },
+  ]);
 });

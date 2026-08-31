@@ -5,8 +5,17 @@ export function conversationTimeline(run, events) {
       .map((stored) => Number(stored.event.payload?.changeset_sequence))
       .filter(Number.isInteger),
   );
+  const revertedFiles = new Map();
+  for (const stored of events) {
+    if (stored.event?.kind !== "changeset_files_reverted") continue;
+    const sequence = Number(stored.event.payload?.changeset_sequence);
+    if (!Number.isInteger(sequence)) continue;
+    const paths = revertedFiles.get(sequence) || new Set();
+    for (const path of stored.event.payload?.files || []) paths.add(path);
+    revertedFiles.set(sequence, paths);
+  }
   return splitTurns(run, events).flatMap((turn) =>
-    turnTimeline(turn, revertedChangesets),
+    turnTimeline(turn, revertedChangesets, revertedFiles),
   );
 }
 
@@ -39,7 +48,7 @@ function splitTurns(run, events) {
   return turns;
 }
 
-function turnTimeline(turn, revertedChangesets) {
+function turnTimeline(turn, revertedChangesets, revertedFiles) {
   const timeline = [];
   const mutationActions = new Map();
   const legacyFiles = new Set();
@@ -149,11 +158,15 @@ function turnTimeline(turn, revertedChangesets) {
       timeline.push({ kind: "assistant", content: payload.content, eventIndex });
     } else if (kind === "changeset_recorded" && Array.isArray(payload.files)) {
       hasPersistedChanges = true;
+      const revertedPaths = revertedFiles.get(stored.sequence) || new Set();
       timeline.push({
         kind: "changeset",
         payload,
         eventSequence: stored.sequence,
-        reverted: revertedChangesets.has(stored.sequence),
+        reverted:
+          revertedChangesets.has(stored.sequence) ||
+          (payload.files.length > 0 && revertedPaths.size === payload.files.length),
+        revertedPaths,
         eventIndex,
       });
     } else if (kind === "run_finished") {

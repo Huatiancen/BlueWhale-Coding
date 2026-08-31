@@ -587,6 +587,11 @@ summary:focus-visible {
 }
 .changeset-undo:disabled { cursor: default; opacity: 0.72; }
 .changeset-files { display: grid; }
+.changeset-file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
 .changeset-file {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto auto;
@@ -598,6 +603,16 @@ summary:focus-visible {
   font: 0.78rem var(--font-ui);
 }
 .changeset-file:hover { background: #f7f9f9; }
+.changeset-file-undo {
+  margin-right: 14px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  color: var(--ink-500);
+  background: transparent;
+  font-size: 0.7rem;
+}
+.changeset-file-undo:hover:not(:disabled) { background: #f0f3f3; color: var(--ink-200); }
+.changeset-file-undo:disabled { cursor: default; opacity: 0.62; }
 .changeset-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-chevron { margin-left: auto; color: var(--ink-500); font: 1rem var(--font-ui); }
 

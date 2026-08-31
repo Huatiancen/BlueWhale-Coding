@@ -9,9 +9,14 @@ from pathlib import Path
 from time import monotonic
 from typing import cast
 
+from bluewhale_agent.agent.checkpoints import (
+    CheckpointPhase,
+    RunCheckpoint,
+    RunCheckpointStore,
+)
 from bluewhale_agent.agent.state import AgentState
 from bluewhale_agent.agent.steering import RuntimeInstruction, RuntimeInstructionQueue
-from bluewhale_agent.context.instructions import load_project_instructions
+from bluewhale_agent.context.instructions import InstructionResolver
 from bluewhale_agent.context.manager import ContextBudgetError, ContextManager
 from bluewhale_agent.context.workspace_map import WorkspaceMapBuilder
 from bluewhale_agent.domain.events import EventKind, RunEvent
@@ -32,7 +37,9 @@ from bluewhale_agent.providers.base import (
     ModelProtocolError,
     ModelProvider,
     ProviderRequestError,
+    StreamInterruptedError,
 )
+from bluewhale_agent.providers.recovery import repair_tool_history
 from bluewhale_agent.runtime.command import RunCommandTool
 from bluewhale_agent.runtime.paths import WorkspacePaths
 from bluewhale_agent.runtime.permissions import (
@@ -52,8 +59,10 @@ from bluewhale_agent.verification.discovery import (
 )
 from bluewhale_agent.verification.gate import (
     VerificationGate,
+    VerificationLevel,
     VerificationOutcome,
     VerificationResult,
+    assess_change_scope,
 )
 
 _SYSTEM_PROMPT = """You are BlueWhale, a local evidence-driven coding agent.
@@ -110,6 +119,8 @@ class AgentLoop:
         initial_history: Sequence[Message] = (),
         initial_observations: Sequence[Observation] = (),
         instruction_queue: RuntimeInstructionQueue | None = None,
+        allowed_change_paths: Sequence[str] | None = None,
+        resume_checkpoint: RunCheckpoint | None = None,
     ) -> None:
         self._run_id = run_id
         self._provider = provider
@@ -141,11 +152,21 @@ class AgentLoop:
         )
         self._context_manager = ContextManager(max_chars=max_context_chars)
         self._workspace_map = WorkspaceMapBuilder(self._paths)
-        self._project_instructions = load_project_instructions(self._paths.root)
+        self._instruction_resolver = InstructionResolver(self._paths.root)
+        root_instructions = self._instruction_resolver.resolve_for(".")
+        self._project_instructions = root_instructions.render()
+        self._instruction_sources = tuple(
+            document.source for document in root_instructions.documents
+        )
         self._gate = VerificationGate(max_repair_attempts=self._limits.max_repair_attempts)
         self._store = trajectory or TrajectoryStore(self._paths.root, run_id)
         if self._store.run_id != run_id:
             raise ValueError("Trajectory store run id must match the agent run id")
+        self._checkpoint_store = RunCheckpointStore(
+            self._paths.root,
+            run_id,
+            runs_root=self._store.run_dir.parent,
+        )
         self._event_sink = event_sink
         self._state: AgentState | None = None
         self._task = ""
@@ -159,7 +180,13 @@ class AgentLoop:
         self._final_answer: str | None = None
         self._verification: VerificationOutcome | None = None
         self._verification_action = 0
+        self._completed_action_ids: list[str] = []
         self._instruction_queue = instruction_queue or RuntimeInstructionQueue()
+        self._allowed_change_paths = (
+            tuple(allowed_change_paths) if allowed_change_paths is not None else None
+        )
+        self._resume_checkpoint = resume_checkpoint
+        self._stream_recovery_attempts = 0
 
     async def run(self, task: str) -> AgentRunResult:
         """Execute until a deterministic terminal condition is reached."""
@@ -167,7 +194,9 @@ class AgentLoop:
         self._task = task
         self._state = AgentState.start(task, self._limits)
         self._started_at = self._clock()
-        self._emit(EventKind.RUN_STARTED, {"task": task})
+        resumed = self._restore_checkpoint()
+        self._emit(EventKind.RUN_STARTED, {"task": task, "resumed": resumed})
+        self._checkpoint(CheckpointPhase.PREPARING)
         self._state.mark_running()
         self._emit_state()
 
@@ -202,6 +231,7 @@ class AgentLoop:
     async def _request_model(self) -> ModelResponse:
         while True:
             self._guard_model_call()
+            self._checkpoint(CheckpointPhase.MODEL_REQUEST)
             try:
                 messages = self._build_messages()
                 tools = self._registry.schemas()
@@ -213,6 +243,18 @@ class AgentLoop:
                     )
                 else:
                     response = await self._provider.complete(messages, tools)
+            except StreamInterruptedError as error:
+                partial = error.partial_response
+                if partial.content or partial.reasoning_content or partial.tool_calls:
+                    self._record_response(partial, intermediate=True)
+                self._checkpoint(CheckpointPhase.INTERRUPTED)
+                self._state_required().record_model_call()
+                self._unresolved_errors.append(str(error))
+                if self._stream_recovery_attempts >= self._limits.max_api_retries:
+                    raise _TerminalRun(StopReason.API_ERROR) from error
+                self._stream_recovery_attempts += 1
+                self._history = repair_tool_history(self._history)
+                continue
             except ModelProtocolError as error:
                 self._state_required().record_model_call()
                 self._consecutive_format_errors += 1
@@ -229,7 +271,35 @@ class AgentLoop:
 
             self._state_required().record_model_call()
             self._consecutive_format_errors = 0
+            self._stream_recovery_attempts = 0
             return response
+
+    def _restore_checkpoint(self) -> bool:
+        checkpoint = self._resume_checkpoint
+        if checkpoint is None:
+            return False
+        if checkpoint.run_id != self._run_id:
+            raise ValueError("Resume checkpoint run id must match the agent run id")
+        if checkpoint.phase in {CheckpointPhase.COMPLETED, CheckpointPhase.FAILED}:
+            return False
+        restored = (
+            list(checkpoint.messages)
+            if checkpoint.task is not None
+            else list(self._prior_history)
+        )
+        if checkpoint.task:
+            restored.insert(0, Message(role=MessageRole.USER, content=checkpoint.task))
+        self._prior_history = repair_tool_history(restored)
+        self._history = []
+        self._completed_action_ids = list(checkpoint.completed_action_ids)
+        if checkpoint.needs_reconciliation:
+            pending = checkpoint.pending_action
+            assert pending is not None
+            self._unresolved_errors.append(
+                f"Interrupted action {pending.id} ({pending.tool_name}) was not replayed; "
+                "inspect workspace state before deciding whether to reissue it."
+            )
+        return True
 
     def _record_delta(self, delta: ModelDelta) -> None:
         self._emit(EventKind.MODEL_DELTA, delta.model_dump(mode="json"))
@@ -270,6 +340,7 @@ class AgentLoop:
                 "intermediate": intermediate,
             },
         )
+        self._checkpoint(CheckpointPhase.MODEL_RESPONSE)
 
     def _deliver_pending_instructions(self) -> None:
         self._deliver_instructions(self._instruction_queue.drain())
@@ -292,20 +363,29 @@ class AgentLoop:
     ) -> None:
         for action in actions:
             self._guard_runtime()
+            instructions_changed = self._apply_scoped_instructions(action)
+            self._checkpoint(CheckpointPhase.TOOL_EXECUTING, pending_action=action)
             self._actions.append(action)
             self._emit(
                 EventKind.ACTION_REQUESTED,
                 {"action": action.model_dump(mode="json"), "verification": verification},
             )
+            if instructions_changed and not verification:
+                observation = Observation(
+                    action_id=action.id,
+                    status=ObservationStatus.ERROR,
+                    summary="Scoped AGENTS.md rules loaded; review them and reissue the action.",
+                    content=(
+                        "The action was not executed because more specific repository "
+                        "instructions became active."
+                    ),
+                    duration_ms=0,
+                )
+                self._record_observation(action, observation, verification=False)
+                self._checkpoint(CheckpointPhase.TOOL_FINISHED)
+                return
             observation = await self._registry.dispatch(action)
-            self._observations.append(observation)
-            stored = self._emit(
-                EventKind.OBSERVATION_RECEIVED,
-                {
-                    "observation": observation.model_dump(mode="json"),
-                    "verification": verification,
-                },
-            )
+            stored = self._record_observation(action, observation, verification=verification)
             if action.tool_name == "update_plan":
                 active = action.arguments.get("active_step_id")
                 self._active_step_id = active if isinstance(active, str) else None
@@ -324,22 +404,69 @@ class AgentLoop:
             )
             if step_ids:
                 self._advance_plan_if_needed(step_ids[0])
-            if not verification:
-                self._history.append(
-                    Message(
-                        role=MessageRole.TOOL,
-                        content=observation.model_dump_json(),
-                        tool_call_id=action.id,
-                    )
-                )
             if observation.status is ObservationStatus.DENIED:
                 raise _TerminalRun(StopReason.PERMISSION_DENIED)
             if observation.status is not ObservationStatus.SUCCESS:
                 self._unresolved_errors.append(observation.summary)
+            self._checkpoint(CheckpointPhase.TOOL_FINISHED)
+
+    def _record_observation(
+        self,
+        action: Action,
+        observation: Observation,
+        *,
+        verification: bool,
+    ) -> StoredEvent:
+        self._observations.append(observation)
+        self._completed_action_ids.append(action.id)
+        stored = self._emit(
+            EventKind.OBSERVATION_RECEIVED,
+            {
+                "observation": observation.model_dump(mode="json"),
+                "verification": verification,
+            },
+        )
+        if not verification:
+            self._history.append(
+                Message(
+                    role=MessageRole.TOOL,
+                    content=observation.model_dump_json(),
+                    tool_call_id=action.id,
+                )
+            )
+        return stored
+
+    def _apply_scoped_instructions(self, action: Action) -> bool:
+        target = action.arguments.get("path")
+        if not isinstance(target, str) or not target.strip():
+            return False
+        bundle = self._instruction_resolver.resolve_for(target)
+        sources = tuple(document.source for document in bundle.documents)
+        changed = sources != self._instruction_sources
+        self._project_instructions = bundle.render()
+        self._instruction_sources = sources
+        self._ledger.record_instruction_sources(action.id, bundle.documents)
+        self._emit(
+            EventKind.INSTRUCTIONS_APPLIED,
+            {
+                "action_id": action.id,
+                "target": target,
+                "documents": [
+                    {
+                        "source": document.source,
+                        "scope": document.scope,
+                        "summary": document.summary,
+                    }
+                    for document in bundle.documents
+                ],
+            },
+        )
+        return changed
 
     async def _verify_changes(self) -> AgentRunResult:
         state = self._state_required()
         state.begin_verification()
+        self._checkpoint(CheckpointPhase.VERIFYING)
         self._emit_state()
         commands = discover_verification_commands(self._paths)
 
@@ -364,6 +491,21 @@ class AgentLoop:
                 await self._execute_actions(response.tool_calls)
 
         self._verification = await self._gate.run(commands, runner, repair)
+        if self._allowed_change_paths is not None:
+            scope = assess_change_scope(
+                changed_paths=[change.path for change in self._context.changeset.changes],
+                allowed_paths=self._allowed_change_paths,
+            )
+            if not scope.allowed:
+                paths = ", ".join(scope.unrelated_paths)
+                self._unresolved_errors.append(f"Changes outside allowed scope: {paths}")
+                self._verification = self._verification.model_copy(
+                    update={
+                        "passed": False,
+                        "level": VerificationLevel.FAILED,
+                        "stop_reason": StopReason.VERIFICATION_FAILED,
+                    }
+                )
         state.repair_attempts = self._verification.repair_attempts
         self._emit(
             EventKind.VERIFICATION_FINISHED,
@@ -402,6 +544,14 @@ class AgentLoop:
                 "final_answer": self._final_answer,
             },
         )
+        terminal_phase = (
+            CheckpointPhase.COMPLETED
+            if reason in {StopReason.COMPLETED, StopReason.PARTIALLY_VERIFIED}
+            else CheckpointPhase.INTERRUPTED
+            if reason in {StopReason.USER_STOPPED, StopReason.APP_INTERRUPTED}
+            else CheckpointPhase.FAILED
+        )
+        self._checkpoint(terminal_phase)
         return AgentRunResult(
             run_id=self._run_id,
             task=self._task,
@@ -416,6 +566,24 @@ class AgentLoop:
             evidence_report=self._ledger.report(),
             verification=self._verification,
             trajectory=self._store,
+        )
+
+    def _checkpoint(
+        self,
+        phase: CheckpointPhase,
+        *,
+        pending_action: Action | None = None,
+    ) -> RunCheckpoint:
+        return self._checkpoint_store.save(
+            RunCheckpoint(
+                run_id=self._run_id,
+                task=self._task,
+                phase=phase,
+                messages=tuple((*self._prior_history, *self._history)),
+                pending_action=pending_action,
+                completed_action_ids=tuple(self._completed_action_ids),
+                changeset_id=self._run_id if self._context.changeset.changes else None,
+            )
         )
 
     def _emit_state(self) -> StoredEvent:

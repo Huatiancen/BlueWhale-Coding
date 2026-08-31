@@ -69,6 +69,26 @@ BLUEWHALE_BASE_URL=https://api.deepseek.com
 
 配置由 `pydantic-settings` 读取。API Key 使用 `SecretStr` 保存，不会被写入请求正文、事件轨迹或错误信息。`.env` 已被 Git 忽略，请勿提交真实凭据。
 
+## 启动 macOS GUI
+
+安装桌面依赖后启动原生应用窗口：
+
+```bash
+python -m pip install -e '.[desktop,dev]'
+bluewhale desktop
+```
+
+首次使用时在首页配置 DeepSeek API Key，并通过系统目录选择器打开项目。API Key 保存于 macOS 钥匙串；项目历史、轨迹与诊断数据均保留在本机。桌面端会检查 API 配置、项目读写权限、Seatbelt 沙箱，以及当前项目需要的 Python、Node.js 或 C/C++ 工具链。
+
+如需生成可从 Finder 启动的本机应用：
+
+```bash
+python scripts/build_macos_app.py
+open dist/BlueWhale.app
+```
+
+构建脚本只使用 Python 标准库，不执行签名或公证，也不会覆盖已有的 `.app` 目录。生成的本机启动器优先使用当前仓库的 `.venv/bin/bluewhale`，因此适合在自己的 Mac 上演示。
+
 ## 启动 Web GUI
 
 ```bash
@@ -93,7 +113,7 @@ bluewhale serve --workspace . --host 127.0.0.1 --port 8765
 
 - 文件访问必须位于 `--workspace` 指定目录内，拒绝路径穿越和越界符号链接。
 - `.git`、`.env*` 和 `.bluewhale` 被视为受保护路径。
-- `rm`、`sudo`、`git reset` 等危险或破坏性命令直接拒绝。
+- `rm`、`sudo`、`git reset` 等危险或破坏性命令不会静默执行，必须进入显式审批；系统仍会拒绝无法安全限定目标的请求。
 - 已知只读工具和常见测试命令可自动执行；未知命令默认请求审批。
 - 审批仅对当前 Action 生效，不能重复使用；默认 60 秒超时并按拒绝处理。
 - 命令具有超时限制，Agent 具有步骤数、修复次数和总运行时间预算。
@@ -107,6 +127,12 @@ bluewhale serve --workspace . --host 127.0.0.1 --port 8765
 ```
 
 轨迹是追加写入的结构化事件，用于 GUI 回放和审计。写入前会递归脱敏常见密钥、令牌和认证字段。该目录已在本仓库的 `.gitignore` 中忽略；对其他目标项目使用时，也建议将 `.bluewhale/` 加入其忽略规则。
+
+桌面端支持导出脱敏诊断 ZIP。诊断包只包含 BlueWhale 版本、平台、自检摘要、最近任务状态、事件类型计数与验证结果，不包含 `.env`、API Key、完整环境变量、任务正文、模型回答或项目源代码。
+
+## 本地演示项目
+
+选择 `demo/bluewhale-repair-demo` 可演示缺陷定位、文件修改、独立验证、Diff 和按文件撤销。推荐指令与预期验证命令见该目录内的 `验证指令.md`；项目初始测试被有意设计为失败。
 
 ## 测试
 

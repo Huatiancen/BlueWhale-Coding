@@ -199,6 +199,35 @@ def test_restore_conversation_closes_tool_calls_from_an_interrupted_turn() -> No
     ]
 
 
+def test_restore_conversation_closes_tool_calls_when_process_ended_without_finish_event() -> None:
+    events = [
+        stored(1, EventKind.RUN_STARTED, {"task": "修改文件"}),
+        stored(
+            2,
+            EventKind.MODEL_RESPONSE,
+            {
+                "content": None,
+                "finish_reason": "tool_calls",
+                "tool_calls": [
+                    {
+                        "id": "write-before-crash",
+                        "tool_name": "write_file",
+                        "arguments": {"path": "app.py", "content": "value = 2\n"},
+                    }
+                ],
+            },
+        ),
+    ]
+
+    seed = restore_conversation(events)
+
+    recovered = seed.observations[-1]
+    assert recovered.action_id == "write-before-crash"
+    assert recovered.status is ObservationStatus.ERROR
+    assert recovered.metadata["recovered"] is True
+    assert recovered.metadata["retry_safe"] is False
+
+
 def test_restore_conversation_rejects_pending_tool_calls_from_completed_turn() -> None:
     events = [
         stored(1, EventKind.RUN_STARTED, {"task": "运行测试"}),

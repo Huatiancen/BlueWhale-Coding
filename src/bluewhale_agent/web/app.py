@@ -35,6 +35,7 @@ from bluewhale_agent.web.approvals import (
 from bluewhale_agent.web.desktop_auth import DESKTOP_COOKIE, DesktopSessionGuard
 from bluewhale_agent.web.schemas import (
     ApprovalResolveRequest,
+    FileUndoRequest,
     HealthResponse,
     RunContinueRequest,
     RunCreateRequest,
@@ -285,6 +286,26 @@ def create_app(
     async def undo_run_changeset(run_id: str, changeset_sequence: int) -> StoredEvent:
         try:
             return await manager.undo_changeset(run_id, changeset_sequence)
+        except RunNotFoundError as error:
+            raise HTTPException(status_code=404, detail=f"Unknown run: {run_id}") from error
+        except (RunConflictError, ChangeSetUndoError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post(
+        "/api/runs/{run_id}/changesets/{changeset_sequence}/undo-files",
+        response_model=StoredEvent,
+    )
+    async def undo_run_changeset_files(
+        run_id: str,
+        changeset_sequence: int,
+        request: FileUndoRequest,
+    ) -> StoredEvent:
+        try:
+            return await manager.undo_changeset_files(
+                run_id,
+                changeset_sequence,
+                request.paths,
+            )
         except RunNotFoundError as error:
             raise HTTPException(status_code=404, detail=f"Unknown run: {run_id}") from error
         except (RunConflictError, ChangeSetUndoError) as error:

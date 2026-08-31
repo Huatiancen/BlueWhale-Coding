@@ -17,7 +17,12 @@ from pydantic import ValidationError
 
 from bluewhale_agent.config import Settings
 from bluewhale_agent.domain.models import Action, Message, MessageRole, ModelResponse
-from bluewhale_agent.providers.base import ModelDelta, ModelProtocolError, ProviderRequestError
+from bluewhale_agent.providers.base import (
+    ModelDelta,
+    ModelProtocolError,
+    ProviderRequestError,
+    StreamInterruptedError,
+)
 
 _ALLOWED_FINISH_REASONS = {
     "stop",
@@ -145,32 +150,44 @@ class DeepSeekProvider:
         answer: list[str] = []
         tool_parts: dict[int, dict[str, str]] = {}
         finish_reason: str | None = None
-        async for chunk in stream:
-            if not chunk.choices:
-                continue
-            choice = chunk.choices[0]
-            delta = choice.delta
-            if delta.reasoning_content:
-                reasoning.append(delta.reasoning_content)
-                on_delta(ModelDelta(kind="reasoning", content=delta.reasoning_content))
-            if delta.content:
-                answer.append(delta.content)
-                on_delta(ModelDelta(kind="answer", content=delta.content))
-            for part in delta.tool_calls or ():
-                index = int(getattr(part, "index", 0))
-                aggregate = tool_parts.setdefault(
-                    index, {"id": "", "name": "", "arguments": ""}
+        try:
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                delta = choice.delta
+                reasoning_fragment = getattr(delta, "reasoning_content", None)
+                if reasoning_fragment:
+                    reasoning.append(reasoning_fragment)
+                    on_delta(ModelDelta(kind="reasoning", content=reasoning_fragment))
+                answer_fragment = getattr(delta, "content", None)
+                if answer_fragment:
+                    answer.append(answer_fragment)
+                    on_delta(ModelDelta(kind="answer", content=answer_fragment))
+                for part in getattr(delta, "tool_calls", None) or ():
+                    index = int(getattr(part, "index", 0))
+                    aggregate = tool_parts.setdefault(
+                        index, {"id": "", "name": "", "arguments": ""}
+                    )
+                    if getattr(part, "id", None):
+                        aggregate["id"] += part.id
+                    function = getattr(part, "function", None)
+                    if function is not None and getattr(function, "name", None):
+                        aggregate["name"] += function.name
+                    if function is not None and getattr(function, "arguments", None):
+                        aggregate["arguments"] += function.arguments
+                    on_delta(ModelDelta(kind="tool_call", content=aggregate["name"]))
+                if choice.finish_reason is not None:
+                    finish_reason = choice.finish_reason
+        except (APIConnectionError, APITimeoutError) as error:
+            raise StreamInterruptedError(
+                ModelResponse(
+                    content="".join(answer) or None,
+                    reasoning_content="".join(reasoning) or None,
+                    tool_calls=self._parse_complete_streamed_tools(tool_parts),
+                    finish_reason="interrupted",
                 )
-                if getattr(part, "id", None):
-                    aggregate["id"] += part.id
-                function = getattr(part, "function", None)
-                if function is not None and getattr(function, "name", None):
-                    aggregate["name"] += function.name
-                if function is not None and getattr(function, "arguments", None):
-                    aggregate["arguments"] += function.arguments
-                on_delta(ModelDelta(kind="tool_call", content=aggregate["name"]))
-            if choice.finish_reason is not None:
-                finish_reason = choice.finish_reason
+            ) from error
 
         if finish_reason not in _ALLOWED_FINISH_REASONS:
             raise ModelProtocolError(
@@ -185,6 +202,19 @@ class DeepSeekProvider:
             tool_calls=actions,
             finish_reason=finish_reason,
         )
+
+    def _parse_complete_streamed_tools(
+        self, tool_parts: dict[int, dict[str, str]]
+    ) -> tuple[Action, ...]:
+        actions: list[Action] = []
+        for _, item in sorted(tool_parts.items()):
+            if not item["id"] or not item["name"]:
+                continue
+            try:
+                actions.append(self._parse_streamed_tool_call(item))
+            except ModelProtocolError:
+                continue
+        return tuple(actions)
 
     @staticmethod
     def _parse_streamed_tool_call(item: dict[str, str]) -> Action:

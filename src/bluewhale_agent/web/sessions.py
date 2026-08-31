@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 
+from bluewhale_agent.agent.checkpoints import CheckpointPhase, RunCheckpointStore
 from bluewhale_agent.agent.loop import AgentLoop, AgentRunResult
 from bluewhale_agent.agent.steering import RuntimeInstruction, RuntimeInstructionQueue
 from bluewhale_agent.domain.events import EventKind, RunEvent
@@ -23,7 +24,11 @@ from bluewhale_agent.history.repository import HistoryRecord, HistoryRepository
 from bluewhale_agent.providers.base import ModelProvider
 from bluewhale_agent.runtime.changeset import ChangeSetSnapshot
 from bluewhale_agent.runtime.permissions import PermissionResult
-from bluewhale_agent.runtime.undo import ChangeSetUndoError, undo_changeset
+from bluewhale_agent.runtime.undo import (
+    ChangeSetUndoError,
+    undo_changeset,
+    undo_files,
+)
 from bluewhale_agent.trajectory.store import StoredEvent, TrajectoryStore
 from bluewhale_agent.web.approvals import (
     ApprovalBroker,
@@ -264,6 +269,16 @@ class SessionManager:
 
             trajectory = previous.trajectory
             seed = restore_conversation(trajectory.events_after(0))
+            checkpoint = RunCheckpointStore(
+                workspace,
+                run_id,
+                runs_root=trajectory.run_dir.parent,
+            ).load_latest()
+            if checkpoint is not None and checkpoint.phase in {
+                CheckpointPhase.COMPLETED,
+                CheckpointPhase.FAILED,
+            }:
+                checkpoint = None
             event_bus = EventBus()
             cancel_event = asyncio.Event()
             title = (
@@ -304,6 +319,7 @@ class SessionManager:
                 initial_history=seed.messages,
                 initial_observations=seed.observations,
                 instruction_queue=session.instruction_queue,
+                resume_checkpoint=checkpoint,
             )
             self._sessions[run_id] = session
             session.background = asyncio.create_task(self._execute(session, loop, request.task))
@@ -432,12 +448,81 @@ class SessionManager:
             workspace = self.workspace_for_run(run_id)
             if workspace is None or not workspace.is_dir():
                 raise ChangeSetUndoError("The task workspace is no longer available")
-            files = undo_changeset(workspace, snapshot)
+            partially_reverted = self._reverted_paths(events, changeset_sequence)
+            remaining = tuple(
+                change.path
+                for change in snapshot.files
+                if change.path not in partially_reverted
+            )
+            if not remaining:
+                raise ChangeSetUndoError("This change set has already been reverted")
+            files = (
+                undo_changeset(workspace, snapshot)
+                if not partially_reverted
+                else undo_files(workspace, snapshot, remaining)
+            )
             return self._publish(
                 session,
                 EventKind.CHANGESET_REVERTED,
                 {"changeset_sequence": changeset_sequence, "files": list(files)},
             )
+
+    async def undo_changeset_files(
+        self,
+        run_id: str,
+        changeset_sequence: int,
+        paths: tuple[str, ...],
+    ) -> StoredEvent:
+        """Revert selected files from one persisted change set."""
+
+        async with self._lock:
+            session = self.get(run_id)
+            if any(self._is_active(candidate) for candidate in self._sessions.values()):
+                raise RunConflictError("Stop the active task before undoing changes")
+            events = session.trajectory.events_after(0)
+            target = next(
+                (stored for stored in events if stored.sequence == changeset_sequence),
+                None,
+            )
+            if target is None or target.event.kind is not EventKind.CHANGESET_RECORDED:
+                raise ChangeSetUndoError("The requested change set does not exist")
+            already_reverted = self._reverted_paths(events, changeset_sequence)
+            repeated = sorted(set(paths).intersection(already_reverted))
+            if repeated:
+                raise ChangeSetUndoError(f"{repeated[0]} has already been reverted")
+            try:
+                snapshot = ChangeSetSnapshot.model_validate(target.event.payload)
+            except ValidationError as error:
+                raise ChangeSetUndoError(
+                    "This history record does not contain valid rollback data"
+                ) from error
+            workspace = self.workspace_for_run(run_id)
+            if workspace is None or not workspace.is_dir():
+                raise ChangeSetUndoError("The task workspace is no longer available")
+            files = undo_files(workspace, snapshot, paths)
+            return self._publish(
+                session,
+                EventKind.CHANGESET_FILES_REVERTED,
+                {"changeset_sequence": changeset_sequence, "files": list(files)},
+            )
+
+    @staticmethod
+    def _reverted_paths(
+        events: Sequence[StoredEvent], changeset_sequence: int
+    ) -> set[str]:
+        reverted: set[str] = set()
+        for stored in events:
+            if stored.event.kind not in {
+                EventKind.CHANGESET_REVERTED,
+                EventKind.CHANGESET_FILES_REVERTED,
+            }:
+                continue
+            if stored.event.payload.get("changeset_sequence") != changeset_sequence:
+                continue
+            files = stored.event.payload.get("files")
+            if isinstance(files, list):
+                reverted.update(path for path in files if isinstance(path, str))
+        return reverted
 
     async def stream_events(
         self,

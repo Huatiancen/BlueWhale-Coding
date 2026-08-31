@@ -1,0 +1,6 @@
+--- a/range_tools.py
++++ b/range_tools.py
+@@ -1,2 +1,2 @@
+ def inclusive_sum(start: int, end: int) -> int:
+-    return sum(range(start, end))
++    return sum(range(start, end + 1))

@@ -1,0 +1,707 @@
+{
+  "suite": "bluewhale-15",
+  "model": "deepseek-v4-flash",
+  "attempts": [
+    {
+      "case_id": "py-off-by-one",
+      "attempt_index": 1,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 12438,
+      "changed_paths": [
+        "range_tools.py"
+      ],
+      "trajectory_path": "py-off-by-one/1/trajectory.jsonl",
+      "diff_path": "py-off-by-one/1/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-slug",
+      "attempt_index": 1,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 7191,
+      "changed_paths": [
+        "slug.py"
+      ],
+      "trajectory_path": "py-slug/1/trajectory.jsonl",
+      "diff_path": "py-slug/1/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-store-id",
+      "attempt_index": 1,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 8339,
+      "changed_paths": [
+        "store.py"
+      ],
+      "trajectory_path": "py-store-id/1/trajectory.jsonl",
+      "diff_path": "py-store-id/1/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-report-rate",
+      "attempt_index": 1,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 7466,
+      "changed_paths": [
+        "report.py"
+      ],
+      "trajectory_path": "py-report-rate/1/trajectory.jsonl",
+      "diff_path": "py-report-rate/1/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-config-merge",
+      "attempt_index": 1,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 8665,
+      "changed_paths": [
+        "config.py"
+      ],
+      "trajectory_path": "py-config-merge/1/trajectory.jsonl",
+      "diff_path": "py-config-merge/1/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-csv-parse",
+      "attempt_index": 1,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 12346,
+      "changed_paths": [
+        "csv_tools.py"
+      ],
+      "trajectory_path": "py-csv-parse/1/trajectory.jsonl",
+      "diff_path": "py-csv-parse/1/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-lru-cache",
+      "attempt_index": 1,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 8302,
+      "changed_paths": [
+        "cache.py"
+      ],
+      "trajectory_path": "py-lru-cache/1/trajectory.jsonl",
+      "diff_path": "py-lru-cache/1/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "js-cart-total",
+      "attempt_index": 1,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 5829,
+      "changed_paths": [
+        "cart.js"
+      ],
+      "trajectory_path": "js-cart-total/1/trajectory.jsonl",
+      "diff_path": "js-cart-total/1/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "js-slug",
+      "attempt_index": 1,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 10732,
+      "changed_paths": [
+        "slug.js"
+      ],
+      "trajectory_path": "js-slug/1/trajectory.jsonl",
+      "diff_path": "js-slug/1/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "js-group",
+      "attempt_index": 1,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 7292,
+      "changed_paths": [
+        "group.js"
+      ],
+      "trajectory_path": "js-group/1/trajectory.jsonl",
+      "diff_path": "js-group/1/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "js-retry",
+      "attempt_index": 1,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 14295,
+      "changed_paths": [
+        "retry.js"
+      ],
+      "trajectory_path": "js-retry/1/trajectory.jsonl",
+      "diff_path": "js-retry/1/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "c-clamp",
+      "attempt_index": 1,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 7455,
+      "changed_paths": [
+        "clamp.c"
+      ],
+      "trajectory_path": "c-clamp/1/trajectory.jsonl",
+      "diff_path": "c-clamp/1/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "c-trim",
+      "attempt_index": 1,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 21762,
+      "changed_paths": [
+        "trim.c"
+      ],
+      "trajectory_path": "c-trim/1/trajectory.jsonl",
+      "diff_path": "c-trim/1/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "cpp-median",
+      "attempt_index": 1,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 26217,
+      "changed_paths": [
+        "extra_test.cpp",
+        "stats.cpp"
+      ],
+      "trajectory_path": "cpp-median/1/trajectory.jsonl",
+      "diff_path": "cpp-median/1/changes.diff",
+      "failure_types": [
+        "unrelated_file_change"
+      ]
+    },
+    {
+      "case_id": "cpp-unique",
+      "attempt_index": 1,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 15258,
+      "changed_paths": [
+        "unique.cpp"
+      ],
+      "trajectory_path": "cpp-unique/1/trajectory.jsonl",
+      "diff_path": "cpp-unique/1/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-off-by-one",
+      "attempt_index": 2,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 5767,
+      "changed_paths": [
+        "range_tools.py"
+      ],
+      "trajectory_path": "py-off-by-one/2/trajectory.jsonl",
+      "diff_path": "py-off-by-one/2/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-slug",
+      "attempt_index": 2,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 18466,
+      "changed_paths": [
+        "slug.py",
+        "test_slug.py"
+      ],
+      "trajectory_path": "py-slug/2/trajectory.jsonl",
+      "diff_path": "py-slug/2/changes.diff",
+      "failure_types": [
+        "unrelated_file_change"
+      ]
+    },
+    {
+      "case_id": "py-store-id",
+      "attempt_index": 2,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 7550,
+      "changed_paths": [
+        "store.py"
+      ],
+      "trajectory_path": "py-store-id/2/trajectory.jsonl",
+      "diff_path": "py-store-id/2/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-report-rate",
+      "attempt_index": 2,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 10485,
+      "changed_paths": [
+        "report.py"
+      ],
+      "trajectory_path": "py-report-rate/2/trajectory.jsonl",
+      "diff_path": "py-report-rate/2/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-config-merge",
+      "attempt_index": 2,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 7289,
+      "changed_paths": [
+        "config.py"
+      ],
+      "trajectory_path": "py-config-merge/2/trajectory.jsonl",
+      "diff_path": "py-config-merge/2/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-csv-parse",
+      "attempt_index": 2,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 13247,
+      "changed_paths": [
+        "csv_tools.py"
+      ],
+      "trajectory_path": "py-csv-parse/2/trajectory.jsonl",
+      "diff_path": "py-csv-parse/2/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-lru-cache",
+      "attempt_index": 2,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 10948,
+      "changed_paths": [
+        "cache.py"
+      ],
+      "trajectory_path": "py-lru-cache/2/trajectory.jsonl",
+      "diff_path": "py-lru-cache/2/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "js-cart-total",
+      "attempt_index": 2,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 7858,
+      "changed_paths": [
+        "cart.js"
+      ],
+      "trajectory_path": "js-cart-total/2/trajectory.jsonl",
+      "diff_path": "js-cart-total/2/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "js-slug",
+      "attempt_index": 2,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 9797,
+      "changed_paths": [
+        "slug.js"
+      ],
+      "trajectory_path": "js-slug/2/trajectory.jsonl",
+      "diff_path": "js-slug/2/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "js-group",
+      "attempt_index": 2,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 8861,
+      "changed_paths": [
+        "group.js"
+      ],
+      "trajectory_path": "js-group/2/trajectory.jsonl",
+      "diff_path": "js-group/2/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "js-retry",
+      "attempt_index": 2,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": false,
+      "repair_attempts": 0,
+      "duration_ms": 12967,
+      "changed_paths": [
+        "retry.js"
+      ],
+      "trajectory_path": "js-retry/2/trajectory.jsonl",
+      "diff_path": "js-retry/2/changes.diff",
+      "failure_types": [
+        "false_completion"
+      ]
+    },
+    {
+      "case_id": "c-clamp",
+      "attempt_index": 2,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 6806,
+      "changed_paths": [
+        "clamp.c"
+      ],
+      "trajectory_path": "c-clamp/2/trajectory.jsonl",
+      "diff_path": "c-clamp/2/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "c-trim",
+      "attempt_index": 2,
+      "completed": false,
+      "public_verification": false,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 16529,
+      "changed_paths": [
+        "edge.c",
+        "trim.c"
+      ],
+      "trajectory_path": "c-trim/2/trajectory.jsonl",
+      "diff_path": "c-trim/2/changes.diff",
+      "failure_types": [
+        "unrelated_file_change",
+        "boundary_violation"
+      ]
+    },
+    {
+      "case_id": "cpp-median",
+      "attempt_index": 2,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 21567,
+      "changed_paths": [
+        "extra_check.cpp",
+        "stats.cpp"
+      ],
+      "trajectory_path": "cpp-median/2/trajectory.jsonl",
+      "diff_path": "cpp-median/2/changes.diff",
+      "failure_types": [
+        "unrelated_file_change"
+      ]
+    },
+    {
+      "case_id": "cpp-unique",
+      "attempt_index": 2,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 12610,
+      "changed_paths": [
+        "unique.cpp"
+      ],
+      "trajectory_path": "cpp-unique/2/trajectory.jsonl",
+      "diff_path": "cpp-unique/2/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-off-by-one",
+      "attempt_index": 3,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 5355,
+      "changed_paths": [
+        "range_tools.py"
+      ],
+      "trajectory_path": "py-off-by-one/3/trajectory.jsonl",
+      "diff_path": "py-off-by-one/3/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-slug",
+      "attempt_index": 3,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 7298,
+      "changed_paths": [
+        "slug.py"
+      ],
+      "trajectory_path": "py-slug/3/trajectory.jsonl",
+      "diff_path": "py-slug/3/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-store-id",
+      "attempt_index": 3,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 8272,
+      "changed_paths": [
+        "store.py"
+      ],
+      "trajectory_path": "py-store-id/3/trajectory.jsonl",
+      "diff_path": "py-store-id/3/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-report-rate",
+      "attempt_index": 3,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 6773,
+      "changed_paths": [
+        "report.py"
+      ],
+      "trajectory_path": "py-report-rate/3/trajectory.jsonl",
+      "diff_path": "py-report-rate/3/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-config-merge",
+      "attempt_index": 3,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 8416,
+      "changed_paths": [
+        "config.py"
+      ],
+      "trajectory_path": "py-config-merge/3/trajectory.jsonl",
+      "diff_path": "py-config-merge/3/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-csv-parse",
+      "attempt_index": 3,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 29214,
+      "changed_paths": [
+        "csv_tools.py"
+      ],
+      "trajectory_path": "py-csv-parse/3/trajectory.jsonl",
+      "diff_path": "py-csv-parse/3/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "py-lru-cache",
+      "attempt_index": 3,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 18185,
+      "changed_paths": [
+        "cache.py"
+      ],
+      "trajectory_path": "py-lru-cache/3/trajectory.jsonl",
+      "diff_path": "py-lru-cache/3/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "js-cart-total",
+      "attempt_index": 3,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 13055,
+      "changed_paths": [
+        "cart.js"
+      ],
+      "trajectory_path": "js-cart-total/3/trajectory.jsonl",
+      "diff_path": "js-cart-total/3/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "js-slug",
+      "attempt_index": 3,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 38097,
+      "changed_paths": [
+        "slug.js"
+      ],
+      "trajectory_path": "js-slug/3/trajectory.jsonl",
+      "diff_path": "js-slug/3/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "js-group",
+      "attempt_index": 3,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 7627,
+      "changed_paths": [
+        "group.js"
+      ],
+      "trajectory_path": "js-group/3/trajectory.jsonl",
+      "diff_path": "js-group/3/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "js-retry",
+      "attempt_index": 3,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": false,
+      "repair_attempts": 0,
+      "duration_ms": 23199,
+      "changed_paths": [
+        "retry.js"
+      ],
+      "trajectory_path": "js-retry/3/trajectory.jsonl",
+      "diff_path": "js-retry/3/changes.diff",
+      "failure_types": [
+        "false_completion"
+      ]
+    },
+    {
+      "case_id": "c-clamp",
+      "attempt_index": 3,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 7583,
+      "changed_paths": [
+        "clamp.c"
+      ],
+      "trajectory_path": "c-clamp/3/trajectory.jsonl",
+      "diff_path": "c-clamp/3/changes.diff",
+      "failure_types": []
+    },
+    {
+      "case_id": "c-trim",
+      "attempt_index": 3,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 21455,
+      "changed_paths": [
+        "trim.c",
+        "verify.c"
+      ],
+      "trajectory_path": "c-trim/3/trajectory.jsonl",
+      "diff_path": "c-trim/3/changes.diff",
+      "failure_types": [
+        "unrelated_file_change"
+      ]
+    },
+    {
+      "case_id": "cpp-median",
+      "attempt_index": 3,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 27919,
+      "changed_paths": [
+        "stats.cpp",
+        "verify.cpp"
+      ],
+      "trajectory_path": "cpp-median/3/trajectory.jsonl",
+      "diff_path": "cpp-median/3/changes.diff",
+      "failure_types": [
+        "unrelated_file_change"
+      ]
+    },
+    {
+      "case_id": "cpp-unique",
+      "attempt_index": 3,
+      "completed": true,
+      "public_verification": true,
+      "hidden_verification": true,
+      "repair_attempts": 0,
+      "duration_ms": 29221,
+      "changed_paths": [
+        "unique.cpp",
+        "verify.cpp"
+      ],
+      "trajectory_path": "cpp-unique/3/trajectory.jsonl",
+      "diff_path": "cpp-unique/3/changes.diff",
+      "failure_types": [
+        "unrelated_file_change"
+      ]
+    }
+  ]
+}

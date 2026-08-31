@@ -1,0 +1,11 @@
+--- a/csv_tools.py
++++ b/csv_tools.py
+@@ -1,2 +1,7 @@
++import csv
++import io
++
++
+ def parse_row(line: str) -> list[str]:
+-    return [part.strip().strip('"') for part in line.split(",")]
++    reader = csv.reader(io.StringIO(line))
++    return next(reader)

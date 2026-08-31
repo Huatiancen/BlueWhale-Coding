@@ -1,0 +1,15 @@
+--- a/unique.cpp
++++ b/unique.cpp
+@@ -1,9 +1,11 @@
++#include <set>
+ #include <vector>
+ 
+ std::vector<int> unique_preserving_order(const std::vector<int>& values) {
+     std::vector<int> result;
++    std::set<int> seen;
+     for (int value : values) {
+-        if (result.empty() || result.back() != value) result.push_back(value);
++        if (seen.insert(value).second) result.push_back(value);
+     }
+     return result;
+ }

@@ -1,0 +1,15 @@
+{
+  "case_id": "js-retry",
+  "attempt_index": 1,
+  "completed": true,
+  "public_verification": true,
+  "hidden_verification": true,
+  "repair_attempts": 0,
+  "duration_ms": 14295,
+  "changed_paths": [
+    "retry.js"
+  ],
+  "trajectory_path": "js-retry/1/trajectory.jsonl",
+  "diff_path": "js-retry/1/changes.diff",
+  "failure_types": []
+}

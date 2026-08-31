@@ -64,7 +64,7 @@ class Limits(BaseModel):
     max_wall_time_seconds: int = Field(default=900, gt=0)
     max_consecutive_format_errors: int = Field(default=3, gt=0)
     max_api_retries: int = Field(default=3, ge=0)
-    max_repair_attempts: int = Field(default=2, ge=0)
+    max_repair_attempts: int = Field(default=3, ge=0)
     command_timeout_seconds: int = Field(default=120, gt=0)
 
 

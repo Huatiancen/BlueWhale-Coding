@@ -1,0 +1,20 @@
+{
+  "name": "bluewhale-15",
+  "cases": [
+    {"id":"py-off-by-one","language":"python","task":"修复 range_tools.py 的 inclusive_sum，使它正确包含区间两端，并运行项目测试。","workspace":"cases/py-off-by-one","hidden_test":"hidden/py_off_by_one.py","expected_paths":["range_tools.py"]},
+    {"id":"py-slug","language":"python","task":"修复 slug.py：slug 应小写、将连续非字母数字字符折叠为一个连字符，并移除首尾连字符。","workspace":"cases/py-slug","hidden_test":"hidden/py_slug.py","expected_paths":["slug.py"]},
+    {"id":"py-store-id","language":"python","task":"修复 store.py 的 next_task_id，删除记录或 ID 不连续时仍应返回当前最大 ID 加一。","workspace":"cases/py-store-id","hidden_test":"hidden/py_store_id.py","expected_paths":["store.py"]},
+    {"id":"py-report-rate","language":"python","task":"修复 report.py 的 completion_rate，返回保留一位小数的完成比例，并正确处理空列表。","workspace":"cases/py-report-rate","hidden_test":"hidden/py_report_rate.py","expected_paths":["report.py"]},
+    {"id":"py-config-merge","language":"python","task":"修复 config.py 的 merge_config：默认配置应被用户配置覆盖，且不得修改输入字典。","workspace":"cases/py-config-merge","hidden_test":"hidden/py_config_merge.py","expected_paths":["config.py"]},
+    {"id":"py-csv-parse","language":"python","task":"修复 csv_tools.py，使 parse_row 正确解析带引号和逗号的 CSV 行。","workspace":"cases/py-csv-parse","hidden_test":"hidden/py_csv_parse.py","expected_paths":["csv_tools.py"]},
+    {"id":"py-lru-cache","language":"python","task":"修复 cache.py 的 LRUCache：读取已有键时应更新最近使用顺序，超出容量时淘汰最久未使用项。","workspace":"cases/py-lru-cache","hidden_test":"hidden/py_lru_cache.py","expected_paths":["cache.py"]},
+    {"id":"js-cart-total","language":"javascript","task":"修复 cart.js 的 cartTotal，使它计算每项 price × quantity 的总和，并且不修改输入。","workspace":"cases/js-cart-total","hidden_test":"hidden/js_cart_total.py","expected_paths":["cart.js"]},
+    {"id":"js-slug","language":"javascript","task":"修复 slug.js，使 slugify 折叠连续分隔符、转为小写并移除首尾连字符。","workspace":"cases/js-slug","hidden_test":"hidden/js_slug.py","expected_paths":["slug.js"]},
+    {"id":"js-group","language":"javascript","task":"修复 group.js 的 groupBy，使同一键下的所有对象都被保留，且保持输入顺序。","workspace":"cases/js-group","hidden_test":"hidden/js_group.py","expected_paths":["group.js"]},
+    {"id":"js-retry","language":"javascript","task":"修复 retry.js：异步操作失败时最多重试指定次数，成功后立即返回，最终失败时抛出最后一个错误。","workspace":"cases/js-retry","hidden_test":"hidden/js_retry.py","expected_paths":["retry.js"]},
+    {"id":"c-clamp","language":"c_cpp","task":"修复 clamp.c 的 clamp_int，使小于下界返回下界、大于上界返回上界、区间内保持原值。","workspace":"cases/c-clamp","hidden_test":"hidden/c_clamp.py","expected_paths":["clamp.c"]},
+    {"id":"c-trim","language":"c_cpp","task":"修复 trim.c 的 trim_in_place，使它同时移除字符串首尾空白并保持中间空白。","workspace":"cases/c-trim","hidden_test":"hidden/c_trim.py","expected_paths":["trim.c"]},
+    {"id":"cpp-median","language":"c_cpp","task":"修复 stats.cpp 的 median，使奇偶长度都正确、不得修改输入，并对空数组抛出 invalid_argument。","workspace":"cases/cpp-median","hidden_test":"hidden/cpp_median.py","expected_paths":["stats.cpp"]},
+    {"id":"cpp-unique","language":"c_cpp","task":"修复 unique.cpp 的 unique_preserving_order，去重时保留首次出现顺序，并且不修改输入。","workspace":"cases/cpp-unique","hidden_test":"hidden/cpp_unique.py","expected_paths":["unique.cpp"]}
+  ]
+}

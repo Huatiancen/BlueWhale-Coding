@@ -11,7 +11,10 @@ from bluewhale_agent.verification.discovery import (
 from bluewhale_agent.verification.gate import (
     VerificationCommand,
     VerificationGate,
+    VerificationLevel,
+    VerificationOutcome,
     VerificationResultStatus,
+    assess_change_scope,
     error_fingerprint,
 )
 
@@ -128,6 +131,8 @@ async def test_first_failure_can_be_repaired_and_verified() -> None:
     )
 
     assert outcome.passed is True
+    assert outcome.level is VerificationLevel.PUBLIC_PASSED
+    assert outcome.completion_claim_supported is True
     assert outcome.stop_reason is StopReason.COMPLETED
     assert outcome.rounds == 2
     assert outcome.repair_attempts == 1
@@ -169,6 +174,7 @@ async def test_consecutive_equivalent_failures_stop_as_no_progress() -> None:
 
     assert outcome.passed is False
     assert outcome.stop_reason is StopReason.NO_PROGRESS
+    assert outcome.level is VerificationLevel.FAILED
     assert outcome.rounds == 2
     assert repairs == [1]
     assert outcome.fingerprints[0] == outcome.fingerprints[1]
@@ -211,6 +217,30 @@ async def test_gate_never_exceeds_two_repair_rounds() -> None:
 
 
 @pytest.mark.asyncio
+async def test_default_gate_allows_three_repair_attempts() -> None:
+    responses = iter(
+        observation(ObservationStatus.ERROR, summary=f"failure {index}", exit_code=1)
+        for index in range(4)
+    )
+    repairs: list[int] = []
+
+    async def runner(_: VerificationCommand) -> Observation:
+        return next(responses)
+
+    async def repair(_results: tuple[object, ...], attempt: int) -> None:
+        repairs.append(attempt)
+
+    outcome = await VerificationGate().run(
+        (VerificationCommand(command="pytest -q", kind=VerificationKind.TEST, source="test"),),
+        runner,
+        repair,
+    )
+
+    assert outcome.repair_attempts == 3
+    assert repairs == [1, 2, 3]
+
+
+@pytest.mark.asyncio
 async def test_missing_verification_command_is_partially_verified() -> None:
     repair_called = False
 
@@ -231,6 +261,7 @@ async def test_missing_verification_command_is_partially_verified() -> None:
     )
 
     assert outcome.stop_reason is StopReason.PARTIALLY_VERIFIED
+    assert outcome.level is VerificationLevel.PARTIAL
     assert outcome.latest_results[0].status is VerificationResultStatus.UNAVAILABLE
     assert repair_called is False
 
@@ -245,3 +276,30 @@ async def test_no_discovered_commands_is_partially_verified() -> None:
     assert outcome.passed is False
     assert outcome.stop_reason is StopReason.PARTIALLY_VERIFIED
     assert outcome.rounds == 0
+    assert outcome.level is VerificationLevel.UNVERIFIED
+    assert outcome.completion_claim_supported is False
+
+
+def test_hidden_verification_upgrades_public_outcome_to_full() -> None:
+    public = VerificationOutcome(
+        passed=True,
+        level=VerificationLevel.PUBLIC_PASSED,
+        stop_reason=StopReason.COMPLETED,
+        rounds=1,
+        repair_attempts=0,
+    )
+
+    full = public.with_hidden_verification(True)
+
+    assert full.level is VerificationLevel.FULL_PASSED
+    assert full.passed is True
+
+
+def test_change_scope_reports_paths_outside_allowlist() -> None:
+    result = assess_change_scope(
+        changed_paths=("src/app.py", "README.md", "tests/test_app.py"),
+        allowed_paths=("src/app.py", "tests/"),
+    )
+
+    assert result.allowed is False
+    assert result.unrelated_paths == ("README.md",)

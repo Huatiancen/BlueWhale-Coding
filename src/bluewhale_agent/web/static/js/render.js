@@ -1,5 +1,5 @@
 import { conversationTimeline } from "./conversation-turns.js";
-import { findPendingApproval } from "./event-view.js";
+import { findPendingApproval, instructionEvidence } from "./event-view.js";
 import { renderMarkdown } from "./markdown.js";
 import { createMessageCopyButton } from "./message-copy.js";
 import { groupRunsByProject } from "./project-groups.js";
@@ -27,6 +27,7 @@ export function renderWorkspace(elements, snapshot, callbacks) {
     callbacks.onCopyError,
     callbacks.onSelectArtifact,
     callbacks.onUndoChangeset,
+    callbacks.onUndoFile,
     callbacks.onWithdrawInstruction,
   );
   renderApprovalDock(elements, events, run, callbacks.onResolveApproval);
@@ -135,6 +136,7 @@ function renderConversation(
   onCopyError,
   onSelectArtifact,
   onUndoChangeset,
+  onUndoFile,
   onWithdrawInstruction,
 ) {
   elements.conversation.replaceChildren();
@@ -172,7 +174,7 @@ function renderConversation(
       elements.conversation.append(message);
     } else if (entry.kind === "changeset") {
       elements.conversation.append(
-        changeSetCard(entry, onSelectArtifact, onUndoChangeset),
+        changeSetCard(entry, onSelectArtifact, onUndoChangeset, onUndoFile),
       );
     }
   }
@@ -180,7 +182,7 @@ function renderConversation(
   scroller.scrollTop = scroller.scrollHeight;
 }
 
-function changeSetCard(entry, onSelectArtifact, onUndoChangeset) {
+function changeSetCard(entry, onSelectArtifact, onUndoChangeset, onUndoFile) {
   const { payload } = entry;
   const files = payload.files || [];
   const hasRollbackSnapshot = files.every(
@@ -234,6 +236,7 @@ function changeSetCard(entry, onSelectArtifact, onUndoChangeset) {
   card.append(heading);
   const list = element("div", "changeset-files");
   for (const file of files) {
+    const row = element("div", "changeset-file-row");
     const button = element("button", "changeset-file");
     button.type = "button";
     button.append(element("span", "changeset-path", file.path));
@@ -245,7 +248,26 @@ function changeSetCard(entry, onSelectArtifact, onUndoChangeset) {
     }
     button.append(element("span", "file-chevron", "›"));
     button.addEventListener("click", () => onSelectArtifact(file));
-    list.append(button);
+    const fileUndo = element(
+      "button",
+      "changeset-file-undo",
+      entry.revertedPaths?.has(file.path) ? "已撤销" : "撤销此文件",
+    );
+    fileUndo.type = "button";
+    fileUndo.disabled = Boolean(
+      payload.legacy || entry.reverted || entry.revertedPaths?.has(file.path) || !hasRollbackSnapshot
+    );
+    fileUndo.addEventListener("click", async () => {
+      if (fileUndo.disabled || !onUndoFile) return;
+      fileUndo.disabled = true;
+      fileUndo.textContent = "撤销中…";
+      if (!(await onUndoFile(entry.eventSequence, file.path))) {
+        fileUndo.disabled = false;
+        fileUndo.textContent = "撤销此文件";
+      }
+    });
+    row.append(button, fileUndo);
+    list.append(row);
   }
   card.append(list);
   return card;
@@ -327,6 +349,7 @@ function createWorkDetails(work) {
     (stored) => stored.event.kind === "verification_finished",
   );
   const plan = events.findLast((stored) => stored.event.kind === "plan_updated");
+  const instructions = instructionEvidence(events);
   const unmatchedFailures = events.filter((stored) => {
     if (stored.event.kind !== "observation_received") return false;
     const observation = stored.event.payload.observation;
@@ -349,6 +372,7 @@ function createWorkDetails(work) {
   wrapper.append(workSummary(work));
   const list = element("ol", "work-list");
   if (plan) list.append(planStep(plan));
+  for (const instruction of instructions) list.append(instructionStep(instruction));
   for (const narration of work.modelNarration || []) {
     list.append(modelProcessStep(narration));
   }
@@ -360,6 +384,7 @@ function createWorkDetails(work) {
   if (failedRun) list.append(runOutcomeStep(failedRun));
   if (
     !plan &&
+    !instructions.length &&
     !work.modelNarration?.length &&
     !actions.length &&
     !unmatchedFailures.length &&
@@ -371,6 +396,24 @@ function createWorkDetails(work) {
   wrapper.append(list);
   section.append(wrapper);
   return section;
+}
+
+function instructionStep(instruction) {
+  const item = element("li", "work-step instruction-step");
+  const details = document.createElement("details");
+  const summary = element("summary", "step-summary");
+  summary.append(
+    element("span", "step-dot"),
+    element("span", "step-title", `应用项目规则 ${instruction.target}`),
+    element("span", "step-state", `${instruction.sources.length} 个来源`),
+  );
+  const body = element("div", "step-body");
+  for (const source of instruction.sources) {
+    body.append(element("p", "", source));
+  }
+  details.append(summary, body);
+  item.append(details);
+  return item;
 }
 
 function planStep(stored) {

@@ -1,0 +1,7 @@
+--- a/store.py
++++ b/store.py
+@@ -1,2 +1,3 @@
+ def next_task_id(tasks: list[dict[str, object]]) -> int:
+-    return len(tasks) + 1
++    ids = [task.get("id") for task in tasks if task.get("id") is not None]
++    return (max(ids) if ids else 0) + 1

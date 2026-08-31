@@ -1,0 +1,44 @@
+--- a/trim.c
++++ b/trim.c
+@@ -5,4 +5,10 @@
+     char *start = value;
+     while (*start && isspace((unsigned char)*start)) start++;
+     if (start != value) memmove(value, start, strlen(start) + 1);
++
++    size_t len = strlen(value);
++    while (len > 0 && isspace((unsigned char)value[len - 1])) {
++        value[len - 1] = '\0';
++        len--;
++    }
+ }
+--- /dev/null
++++ b/verify.c
+@@ -0,0 +1,28 @@
++#include <assert.h>
++#include <string.h>
++
++void trim_in_place(char *value);
++
++int main(void) {
++    char a[] = "  blue whale  ";
++    trim_in_place(a);
++    assert(strcmp(a, "blue whale") == 0);
++
++    char b[] = "   \t\n  ";
++    trim_in_place(b);
++    assert(strcmp(b, "") == 0);
++
++    char c[] = "blue whale";
++    trim_in_place(c);
++    assert(strcmp(c, "blue whale") == 0);
++
++    char d[] = "  spaced  out  ";
++    trim_in_place(d);
++    assert(strcmp(d, "spaced  out") == 0);
++
++    char e[] = "";
++    trim_in_place(e);
++    assert(strcmp(e, "") == 0);
++
++    return 0;
++}

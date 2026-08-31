@@ -14,6 +14,7 @@ class EvalCase(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     id: str = Field(min_length=1)
+    language: str = Field(default="python", pattern=r"^(python|javascript|c_cpp)$")
     task: str = Field(min_length=1)
     workspace: str = Field(min_length=1)
     hidden_test: str = Field(min_length=1)
@@ -35,10 +36,15 @@ class EvalAttempt(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     case_id: str
+    attempt_index: int = Field(default=1, ge=1)
     completed: bool
-    verified: bool
+    public_verification: bool = False
+    hidden_verification: bool = False
     repair_attempts: int = Field(ge=0)
     duration_ms: int = Field(ge=0)
+    changed_paths: tuple[str, ...] = ()
+    trajectory_path: str | None = None
+    diff_path: str | None = None
     failure_types: tuple[str, ...] = ()
 
 
@@ -54,8 +60,18 @@ class EvalReport(BaseModel):
         return self._rate(sum(item.completed for item in self.attempts))
 
     @property
+    def public_verification_rate(self) -> float:
+        return self._rate(sum(item.public_verification for item in self.attempts))
+
+    @property
+    def hidden_verification_rate(self) -> float:
+        return self._rate(sum(item.hidden_verification for item in self.attempts))
+
+    @property
     def verification_rate(self) -> float:
-        return self._rate(sum(item.verified for item in self.attempts))
+        """Backward-compatible alias for the hidden verification rate."""
+
+        return self.hidden_verification_rate
 
     @property
     def average_repair_attempts(self) -> float:
@@ -77,7 +93,8 @@ class EvalReport(BaseModel):
             f"- 模型：{self.model}",
             f"- 运行次数：{len(self.attempts)}",
             f"- 完成率：{self.completion_rate:.1%}",
-            f"- 隐藏验证通过率：{self.verification_rate:.1%}",
+            f"- 公开验证通过率：{self.public_verification_rate:.1%}",
+            f"- 隐藏验证通过率：{self.hidden_verification_rate:.1%}",
             f"- 平均修复轮数：{self.average_repair_attempts:.2f}",
             f"- 平均运行时间：{self.average_duration_ms / 1000:.2f} 秒",
             "",
@@ -92,13 +109,18 @@ class EvalReport(BaseModel):
                 "",
                 "## 明细",
                 "",
-                "| 任务 | 完成 | 隐藏验证 | 修复轮数 | 用时(ms) |",
-                "|---|---:|---:|---:|---:|",
+                "| 任务 | 次数 | 完成 | 公开验证 | 隐藏验证 | 修复轮数 | 用时(ms) | 变更 | 产物 |",
+                "|---|---:|---:|---:|---:|---:|---:|---|---|",
             )
         )
         lines.extend(
-            f"| {item.case_id} | {'是' if item.completed else '否'} | "
-            f"{'通过' if item.verified else '失败'} | {item.repair_attempts} | {item.duration_ms} |"
+            f"| {item.case_id} | {item.attempt_index} | "
+            f"{'是' if item.completed else '否'} | "
+            f"{'通过' if item.public_verification else '未通过'} | "
+            f"{'通过' if item.hidden_verification else '失败'} | "
+            f"{item.repair_attempts} | {item.duration_ms} | "
+            f"{', '.join(item.changed_paths) or '-'} | "
+            f"{item.diff_path or item.trajectory_path or '-'} |"
             for item in self.attempts
         )
         return "\n".join(lines) + "\n"

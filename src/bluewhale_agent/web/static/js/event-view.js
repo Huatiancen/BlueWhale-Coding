@@ -15,3 +15,15 @@ export function findPendingApproval(events) {
     );
   }) || null;
 }
+
+export function instructionEvidence(events) {
+  return events
+    .filter(({ event } = {}) => event?.kind === "instructions_applied")
+    .map(({ event }) => ({
+      actionId: event.payload?.action_id || "",
+      target: event.payload?.target || "",
+      sources: (event.payload?.documents || [])
+        .map((document) => document.source)
+        .filter(Boolean),
+    }));
+}

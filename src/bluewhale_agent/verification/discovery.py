@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+import shlex
 import tomllib
 from enum import StrEnum
 from pathlib import Path
@@ -27,6 +29,8 @@ class VerificationCommand(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     command: str = Field(min_length=1)
+    argv: tuple[str, ...] = ()
+    cwd: str = "."
     kind: VerificationKind
     source: str = Field(min_length=1)
 
@@ -49,31 +53,41 @@ def discover_verification_commands(paths: WorkspacePaths) -> tuple[VerificationC
     python_source = _python_test_source(root)
     if python_source is not None:
         commands.append(
-            VerificationCommand(
-                command="python -m pytest -q",
+            _command(
+                ("python", "-m", "pytest", "-q"),
                 kind=VerificationKind.TEST,
                 source=python_source,
             )
         )
+    else:
+        unittest_command = _unittest_command(root)
+        if unittest_command is not None:
+            commands.append(unittest_command)
 
     commands.extend(_node_commands(root))
 
     if (root / "Cargo.toml").is_file():
         commands.append(
-            VerificationCommand(
-                command="cargo test",
+            _command(
+                ("cargo", "test"),
                 kind=VerificationKind.TEST,
                 source="Cargo.toml",
             )
         )
     if (root / "go.mod").is_file():
         commands.append(
-            VerificationCommand(
-                command="go test ./...",
+            _command(
+                ("go", "test", "./..."),
                 kind=VerificationKind.TEST,
                 source="go.mod",
             )
         )
+
+    commands.extend(_cmake_commands(root))
+    if not (root / "CMakeLists.txt").is_file():
+        make = _make_command(root)
+        if make is not None:
+            commands.append(make)
 
     return tuple(commands)
 
@@ -114,6 +128,33 @@ def _declares_pytest(document: dict[str, object]) -> bool:
     return any(isinstance(item, str) and item.lower().startswith("pytest") for item in dependencies)
 
 
+def _unittest_command(root: Path) -> VerificationCommand | None:
+    tests = root / "tests"
+    if tests.is_dir() and any(tests.rglob("test*.py")):
+        return _command(
+            ("python", "-m", "unittest", "discover", "-s", "tests", "-v"),
+            kind=VerificationKind.TEST,
+            source="tests/test*.py",
+        )
+    if any(root.glob("test*.py")):
+        return _command(
+            (
+                "python",
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                ".",
+                "-p",
+                "test*.py",
+                "-v",
+            ),
+            kind=VerificationKind.TEST,
+            source="test*.py",
+        )
+    return None
+
+
 def _node_commands(root: Path) -> tuple[VerificationCommand, ...]:
     manifest = root / "package.json"
     if not manifest.is_file():
@@ -130,8 +171,8 @@ def _node_commands(root: Path) -> tuple[VerificationCommand, ...]:
 
     manager = _node_package_manager(root)
     return tuple(
-        VerificationCommand(
-            command=f"{manager} run {name}",
+        _command(
+            (manager, "run", name),
             kind=kind,
             source="package.json",
         )
@@ -146,3 +187,67 @@ def _node_package_manager(root: Path) -> str:
     if (root / "yarn.lock").is_file():
         return "yarn"
     return "npm"
+
+
+def _make_command(root: Path) -> VerificationCommand | None:
+    for name in ("Makefile", "makefile"):
+        manifest = root / name
+        if not manifest.is_file():
+            continue
+        try:
+            content = manifest.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return None
+        if re.search(r"(?m)^test\s*:", content):
+            return _command(
+                ("make", "test"),
+                kind=VerificationKind.TEST,
+                source=f"{name}:test",
+            )
+    return None
+
+
+def _cmake_commands(root: Path) -> tuple[VerificationCommand, ...]:
+    manifest = root / "CMakeLists.txt"
+    if not manifest.is_file():
+        return ()
+    try:
+        content = manifest.read_text(encoding="utf-8").lower()
+    except (OSError, UnicodeError):
+        return ()
+    if "enable_testing" not in content and "add_test" not in content:
+        return ()
+    source = "CMakeLists.txt"
+    build = ".bluewhale/cmake-build"
+    return (
+        _command(
+            ("cmake", "-S", ".", "-B", build),
+            kind=VerificationKind.BUILD,
+            source=source,
+        ),
+        _command(
+            ("cmake", "--build", build),
+            kind=VerificationKind.BUILD,
+            source=source,
+        ),
+        _command(
+            ("ctest", "--test-dir", build, "--output-on-failure"),
+            kind=VerificationKind.TEST,
+            source=source,
+        ),
+    )
+
+
+def _command(
+    argv: tuple[str, ...],
+    *,
+    kind: VerificationKind,
+    source: str,
+) -> VerificationCommand:
+    return VerificationCommand(
+        command=shlex.join(argv),
+        argv=argv,
+        cwd=".",
+        kind=kind,
+        source=source,
+    )
