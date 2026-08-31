@@ -4,7 +4,7 @@ BlueWhale Coding Agent
 
 BlueWhale 是由 DeepSeek 驱动的本地编程智能体。模型通过 Tool Calling 生成操作，本地 Runtime 负责执行、权限与验证。未使用 Agent 框架或服务端代码、文件工具。
 
-技术栈：Python 3.12、FastAPI、Uvicorn、Pydantic、DeepSeek API；原生 HTML/CSS/JavaScript、SSE；macOS 使用 pywebview、keyring；测试使用 pytest、Node Test Runner、Ruff、Mypy。
+技术栈：Python 3.12、FastAPI、Uvicorn、Pydantic；原生 HTML/CSS/JavaScript、SSE；macOS 使用 pywebview、keyring；测试使用 pytest、Node Test Runner、Ruff、Mypy。
 
 安装：
 python -m venv .venv
