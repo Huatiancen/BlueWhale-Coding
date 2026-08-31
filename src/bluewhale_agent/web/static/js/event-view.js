@@ -27,3 +27,17 @@ export function instructionEvidence(events) {
         .filter(Boolean),
     }));
 }
+
+export function skillEvidence(events) {
+  return events
+    .filter(({ event } = {}) => event?.kind === "skill_applied")
+    .map(({ event }) => ({
+      name: event.payload?.name || "",
+      source: event.payload?.source || "",
+      scope: event.payload?.scope || "",
+      trigger: event.payload?.trigger || "",
+      summary: event.payload?.summary || "",
+      resourceCount: Number(event.payload?.resource_count) || 0,
+    }))
+    .filter((skill) => skill.name);
+}

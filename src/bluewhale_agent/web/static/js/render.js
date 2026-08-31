@@ -1,5 +1,5 @@
 import { conversationTimeline } from "./conversation-turns.js";
-import { findPendingApproval, instructionEvidence } from "./event-view.js";
+import { findPendingApproval, instructionEvidence, skillEvidence } from "./event-view.js";
 import { renderMarkdown } from "./markdown.js";
 import { createMessageCopyButton } from "./message-copy.js";
 import { groupRunsByProject } from "./project-groups.js";
@@ -350,6 +350,7 @@ function createWorkDetails(work) {
   );
   const plan = events.findLast((stored) => stored.event.kind === "plan_updated");
   const instructions = instructionEvidence(events);
+  const skills = skillEvidence(events);
   const unmatchedFailures = events.filter((stored) => {
     if (stored.event.kind !== "observation_received") return false;
     const observation = stored.event.payload.observation;
@@ -373,6 +374,7 @@ function createWorkDetails(work) {
   const list = element("ol", "work-list");
   if (plan) list.append(planStep(plan));
   for (const instruction of instructions) list.append(instructionStep(instruction));
+  for (const skill of skills) list.append(skillStep(skill));
   for (const narration of work.modelNarration || []) {
     list.append(modelProcessStep(narration));
   }
@@ -385,6 +387,7 @@ function createWorkDetails(work) {
   if (
     !plan &&
     !instructions.length &&
+    !skills.length &&
     !work.modelNarration?.length &&
     !actions.length &&
     !unmatchedFailures.length &&
@@ -396,6 +399,28 @@ function createWorkDetails(work) {
   wrapper.append(list);
   section.append(wrapper);
   return section;
+}
+
+function skillStep(skill) {
+  const item = element("li", "work-step skill-step success");
+  const details = document.createElement("details");
+  const summary = element("summary", "step-summary");
+  const trigger = skill.trigger === "explicit" ? "用户指定" : "模型选择";
+  summary.append(
+    element("span", "step-dot"),
+    element("span", "step-title", `已应用 Skill：${skill.name}`),
+    element("span", "step-state", trigger),
+  );
+  const body = element("div", "step-body skill-details");
+  if (skill.summary) body.append(element("p", "", skill.summary));
+  body.append(
+    element("p", "", `来源：${skill.source || "未知"}`),
+    element("p", "", `作用域：${skill.scope === "project" ? "项目" : "用户"}`),
+    element("p", "", `资源：${skill.resourceCount} 个`),
+  );
+  details.append(summary, body);
+  item.append(details);
+  return item;
 }
 
 function instructionStep(instruction) {

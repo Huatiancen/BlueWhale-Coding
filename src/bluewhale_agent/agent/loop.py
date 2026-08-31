@@ -47,11 +47,15 @@ from bluewhale_agent.runtime.permissions import (
     PermissionPolicy,
     PermissionResult,
 )
+from bluewhale_agent.skills.catalog import SkillCatalog, SkillCatalogError
+from bluewhale_agent.skills.invocation import SkillInvocationError, parse_skill_invocation
+from bluewhale_agent.skills.models import MAX_ACTIVE_SKILLS
 from bluewhale_agent.tools.base import ToolContext
 from bluewhale_agent.tools.filesystem import ListFilesTool, ReadFileTool, SearchTextTool
 from bluewhale_agent.tools.mutation import ApplyPatchTool, GetDiffTool, WriteFileTool
 from bluewhale_agent.tools.planning import UpdatePlanTool
 from bluewhale_agent.tools.registry import ToolRegistry
+from bluewhale_agent.tools.skills import LoadSkillTool, render_loaded_skill
 from bluewhale_agent.trajectory.store import StoredEvent, TrajectoryStore
 from bluewhale_agent.verification.discovery import (
     VerificationCommand,
@@ -69,6 +73,7 @@ _SYSTEM_PROMPT = """You are BlueWhale, a local evidence-driven coding agent.
 Use the supplied tools to inspect and change only the selected workspace.
 For non-trivial tasks, call update_plan first and keep its active step current.
 Do not claim that a change works without local verification evidence.
+Use load_skill when an available Skill description matches the task, before following it.
 When the task is complete, respond with a concise factual summary and no tool calls.
 """
 
@@ -121,6 +126,7 @@ class AgentLoop:
         instruction_queue: RuntimeInstructionQueue | None = None,
         allowed_change_paths: Sequence[str] | None = None,
         resume_checkpoint: RunCheckpoint | None = None,
+        skill_user_home: Path | None = None,
     ) -> None:
         self._run_id = run_id
         self._provider = provider
@@ -135,6 +141,11 @@ class AgentLoop:
             command_timeout_seconds=self._limits.command_timeout_seconds,
             command_network_allowed=permission_mode is PermissionMode.FULL,
         )
+        self._skill_catalog = SkillCatalog.discover(
+            workspace=self._paths.root,
+            user_home=skill_user_home,
+        )
+        self._active_skills: dict[str, str] = {}
         self._registry = ToolRegistry(
             tools=[
                 ListFilesTool(),
@@ -143,6 +154,7 @@ class AgentLoop:
                 WriteFileTool(),
                 ApplyPatchTool(),
                 GetDiffTool(),
+                LoadSkillTool(self._skill_catalog),
                 RunCommandTool(),
                 UpdatePlanTool(self._ledger),
             ],
@@ -170,6 +182,7 @@ class AgentLoop:
         self._event_sink = event_sink
         self._state: AgentState | None = None
         self._task = ""
+        self._model_task = ""
         self._started_at = 0.0
         self._prior_history = list(initial_history)
         self._history: list[Message] = []
@@ -192,6 +205,7 @@ class AgentLoop:
         """Execute until a deterministic terminal condition is reached."""
 
         self._task = task
+        self._model_task = task
         self._state = AgentState.start(task, self._limits)
         self._started_at = self._clock()
         resumed = self._restore_checkpoint()
@@ -201,6 +215,7 @@ class AgentLoop:
         self._emit_state()
 
         try:
+            self._prepare_explicit_skill(task)
             while True:
                 response = await self._request_model()
                 if response.tool_calls:
@@ -292,6 +307,21 @@ class AgentLoop:
         self._prior_history = repair_tool_history(restored)
         self._history = []
         self._completed_action_ids = list(checkpoint.completed_action_ids)
+        for name in checkpoint.active_skill_names:
+            if len(self._active_skills) >= MAX_ACTIVE_SKILLS:
+                self._unresolved_errors.append(
+                    f"Only {MAX_ACTIVE_SKILLS} active Skills can be restored; "
+                    "additional checkpoint Skills were skipped."
+                )
+                break
+            try:
+                loaded = self._skill_catalog.load(name, allow_hidden=True)
+            except SkillCatalogError:
+                self._unresolved_errors.append(
+                    f"Previously active Skill {name} is no longer available; it was not restored."
+                )
+                continue
+            self._active_skills[name] = render_loaded_skill(loaded)
         if checkpoint.needs_reconciliation:
             pending = checkpoint.pending_action
             assert pending is not None
@@ -308,7 +338,7 @@ class AgentLoop:
         working_set = {change.path: change.after for change in self._context.changeset.changes}
         return self._context_manager.build(
             system_prompt=_SYSTEM_PROMPT,
-            task=self._task,
+            task=self._model_task,
             status=self._state_required().status,
             unresolved_errors=self._unresolved_errors,
             working_set=working_set,
@@ -317,6 +347,8 @@ class AgentLoop:
             observations=self._observations,
             prior_history=self._prior_history,
             project_instructions=self._project_instructions,
+            available_skills=self._skill_catalog.render_for_model(),
+            active_skills=self._active_skills,
         )
 
     def _record_response(self, response: ModelResponse, *, intermediate: bool = False) -> None:
@@ -384,8 +416,14 @@ class AgentLoop:
                 self._record_observation(action, observation, verification=False)
                 self._checkpoint(CheckpointPhase.TOOL_FINISHED)
                 return
-            observation = await self._registry.dispatch(action)
+            capacity_error = self._skill_capacity_error(action)
+            if capacity_error is None:
+                observation = await self._registry.dispatch(action)
+            else:
+                observation = capacity_error
             stored = self._record_observation(action, observation, verification=verification)
+            if action.tool_name == "load_skill" and observation.status is ObservationStatus.SUCCESS:
+                self._activate_skill(observation, trigger="model")
             if action.tool_name == "update_plan":
                 active = action.arguments.get("active_step_id")
                 self._active_step_id = active if isinstance(active, str) else None
@@ -410,6 +448,26 @@ class AgentLoop:
                 self._unresolved_errors.append(observation.summary)
             self._checkpoint(CheckpointPhase.TOOL_FINISHED)
 
+    def _skill_capacity_error(self, action: Action) -> Observation | None:
+        if action.tool_name != "load_skill":
+            return None
+        name = action.arguments.get("name")
+        if not isinstance(name, str) or name in self._active_skills:
+            return None
+        if len(self._active_skills) < MAX_ACTIVE_SKILLS:
+            return None
+        return Observation(
+            action_id=action.id,
+            status=ObservationStatus.ERROR,
+            summary=(
+                f"active Skill limit ({MAX_ACTIVE_SKILLS}) reached; "
+                f"{name} was not loaded"
+            ),
+            content="",
+            duration_ms=0,
+            metadata={"skill_name": name},
+        )
+
     def _record_observation(
         self,
         action: Action,
@@ -417,12 +475,17 @@ class AgentLoop:
         *,
         verification: bool,
     ) -> StoredEvent:
-        self._observations.append(observation)
+        public_observation = (
+            observation.model_copy(update={"content": ""})
+            if action.tool_name == "load_skill"
+            else observation
+        )
+        self._observations.append(public_observation)
         self._completed_action_ids.append(action.id)
         stored = self._emit(
             EventKind.OBSERVATION_RECEIVED,
             {
-                "observation": observation.model_dump(mode="json"),
+                "observation": public_observation.model_dump(mode="json"),
                 "verification": verification,
             },
         )
@@ -430,11 +493,61 @@ class AgentLoop:
             self._history.append(
                 Message(
                     role=MessageRole.TOOL,
-                    content=observation.model_dump_json(),
+                    content=public_observation.model_dump_json(),
                     tool_call_id=action.id,
                 )
             )
         return stored
+
+    def _activate_skill(self, observation: Observation, *, trigger: str) -> None:
+        name = observation.metadata.get("skill_name")
+        if not isinstance(name, str) or name in self._active_skills:
+            return
+        self._active_skills[name] = observation.content
+        self._emit(
+            EventKind.SKILL_APPLIED,
+            {
+                "name": name,
+                "source": observation.metadata.get("source", ""),
+                "scope": observation.metadata.get("scope", ""),
+                "trigger": trigger,
+                "summary": observation.metadata.get("summary", ""),
+                "resource_count": observation.metadata.get("resource_count", 0),
+            },
+        )
+
+    def _prepare_explicit_skill(self, task: str) -> None:
+        try:
+            invocation = parse_skill_invocation(task)
+        except SkillInvocationError as error:
+            self._final_answer = str(error)
+            raise _TerminalRun(StopReason.TOOL_ERROR) from error
+        if invocation is None:
+            return
+        try:
+            loaded = self._skill_catalog.load(invocation.name, allow_hidden=True)
+        except SkillCatalogError as error:
+            self._final_answer = f"无法加载 Skill：{error}"
+            raise _TerminalRun(StopReason.TOOL_ERROR) from error
+        descriptor = loaded.descriptor
+        observation = Observation(
+            action_id=f"explicit-skill-{descriptor.name}",
+            status=ObservationStatus.SUCCESS,
+            summary=f"Loaded Skill: {descriptor.name}",
+            content=render_loaded_skill(loaded),
+            metadata={
+                "skill_name": descriptor.name,
+                "source": descriptor.source,
+                "scope": descriptor.scope.value,
+                "summary": descriptor.description,
+                "resource_count": len(loaded.resources),
+            },
+            duration_ms=0,
+        )
+        self._activate_skill(observation, trigger="explicit")
+        self._model_task = invocation.arguments or (
+            f"Apply the explicitly selected Skill: {descriptor.name}."
+        )
 
     def _apply_scoped_instructions(self, action: Action) -> bool:
         target = action.arguments.get("path")
@@ -582,6 +695,7 @@ class AgentLoop:
                 messages=tuple((*self._prior_history, *self._history)),
                 pending_action=pending_action,
                 completed_action_ids=tuple(self._completed_action_ids),
+                active_skill_names=tuple(self._active_skills),
                 changeset_id=self._run_id if self._context.changeset.changes else None,
             )
         )

@@ -9,6 +9,7 @@ BlueWhale 是一个由 DeepSeek 驱动、证据优先（evidence-driven）的本
 - **可回放执行轨迹**：每个事件按序写入 JSONL，SSE 断线后可通过 `Last-Event-ID` 继续回放。
 - **证据账本**：模型文本不等于事实；文件变更、搜索结果和测试结果被转换为独立 Evidence。
 - **验证—修复闭环**：自动发现项目声明的测试、类型检查和构建命令；失败后有限次请求模型修复，并检测无进展循环。
+- **渐进式 Skills**：只向模型披露本地 Skill 的名称和描述，需要时再通过受控工具加载完整工作流。
 - **本地安全边界**：所有路径限制在选定工作区内，危险命令直接拒绝，高风险操作通过 GUI 单次审批。
 - **实时 Web GUI**：浏览器中查看会话、模型/工具事件、diff、验证证据和审批状态，无需 TUI。
 
@@ -34,6 +35,7 @@ flowchart LR
 - `agent/`：维护消息历史、步骤预算、终止条件和工具执行循环。
 - `tools/`、`runtime/`：参数校验、路径约束、原子文件修改、命令执行和权限判定。
 - `verification/`：发现验证命令，归一化结果，控制有限修复和无进展停止。
+- `skills/`：发现、校验并按需加载项目级或用户级 `SKILL.md`。
 - `evidence/`、`trajectory/`：生成可核验证据，并持久化可回放事件。
 - `web/`：管理后台任务、审批 Future、REST/SSE API 和原生 HTML/CSS/JavaScript GUI。
 
@@ -117,6 +119,36 @@ bluewhale serve --workspace . --host 127.0.0.1 --port 8765
 - 已知只读工具和常见测试命令可自动执行；未知命令默认请求审批。
 - 审批仅对当前 Action 生效，不能重复使用；默认 60 秒超时并按拒绝处理。
 - 命令具有超时限制，Agent 具有步骤数、修复次数和总运行时间预算。
+
+## 本地 Skills
+
+BlueWhale 采用与 Pi 类似的渐进式披露方式：启动任务时只把 Skill 名称、描述和作用域放入模型上下文；DeepSeek 判断任务匹配后调用只读的 `load_skill` 工具，完整 `SKILL.md` 才会进入后续上下文，不需要额外的路由 API 请求。
+
+支持以下位置：
+
+```text
+~/.bluewhale/skills/<name>/SKILL.md
+~/.agents/skills/<name>/SKILL.md
+<workspace>/.bluewhale/skills/<name>/SKILL.md
+<workspace>/.agents/skills/<name>/SKILL.md
+```
+
+项目级同名 Skill 覆盖用户级 Skill。最小文件格式为：
+
+```markdown
+---
+name: python-testing
+description: Discover and run Python tests. Use for pytest or unittest work.
+---
+
+# Python Testing
+
+Run the narrowest relevant tests before the full suite.
+```
+
+用户可以输入 `/skill:python-testing 检查当前测试` 强制加载指定 Skill。设置 `disable-model-invocation: true` 后，该 Skill 不会出现在模型可自动选择的目录中，但仍可通过 `/skill:name` 显式调用。
+
+Skill 下可以包含 `scripts/`、`references/` 和 `assets/`。BlueWhale 只提供安全的相对资源清单，不会因加载 Skill 自动运行脚本。任何后续文件访问、命令执行、联网或高风险操作仍由原有工作区边界、沙箱和审批策略判断；Skill 不能覆盖这些安全规则。
 
 ## 本地数据
 

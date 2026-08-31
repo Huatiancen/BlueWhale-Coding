@@ -43,7 +43,9 @@ class PermissionResult(BaseModel):
 class PermissionPolicy:
     """Classify local tool actions before execution."""
 
-    READ_ONLY_TOOLS = frozenset({"get_diff", "list_files", "read_file", "search_text"})
+    READ_ONLY_TOOLS = frozenset(
+        {"get_diff", "list_files", "load_skill", "read_file", "search_text"}
+    )
     LOCAL_CONTROL_TOOLS = frozenset({"update_plan"})
 
     def __init__(

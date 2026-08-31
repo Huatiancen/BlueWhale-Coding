@@ -1,6 +1,12 @@
 from pathlib import Path
 
-from bluewhale_agent.context.manager import ContextManager, context_char_count
+import pytest
+
+from bluewhale_agent.context.manager import (
+    ContextBudgetError,
+    ContextManager,
+    context_char_count,
+)
 from bluewhale_agent.context.workspace_map import WorkspaceMap, WorkspaceMapBuilder
 from bluewhale_agent.domain.models import (
     Action,
@@ -11,6 +17,7 @@ from bluewhale_agent.domain.models import (
     RunStatus,
 )
 from bluewhale_agent.runtime.paths import WorkspacePaths
+from bluewhale_agent.skills.models import MAX_ACTIVE_SKILLS
 
 
 def build_sample_workspace(tmp_path: Path) -> WorkspaceMap:
@@ -158,6 +165,123 @@ def test_old_failure_body_and_required_sections_survive_compression(tmp_path: Pa
     assert combined.index("repair the demo") < combined.index("tests are still failing")
     assert combined.index("tests are still failing") < combined.index("src/app.py")
     assert combined.index("src/app.py") < combined.index("# Workspace map")
+
+
+def test_context_separates_available_and_active_skills(tmp_path: Path) -> None:
+    messages = ContextManager(max_chars=10_000).build(
+        system_prompt="system rules",
+        task="run tests",
+        status=RunStatus.RUNNING,
+        unresolved_errors=(),
+        working_set={},
+        workspace_map=build_sample_workspace(tmp_path),
+        history=(),
+        observations=(),
+        available_skills="<available_skills><skill>python-testing</skill></available_skills>",
+        active_skills={"python-testing": "PRIVATE WORKFLOW"},
+    )
+
+    system_messages = [
+        message.content or "" for message in messages if message.role is MessageRole.SYSTEM
+    ]
+    assert any(
+        "Available Skills" in content and "python-testing" in content
+        for content in system_messages
+    )
+    assert any("Active Skill: python-testing" in content for content in system_messages)
+    assert any("PRIVATE WORKFLOW" in content for content in system_messages)
+
+
+def test_large_active_skill_is_bounded_without_losing_current_task(tmp_path: Path) -> None:
+    task = "TASK-MUST-STAY"
+    messages = ContextManager(max_chars=8_000).build(
+        system_prompt="system rules",
+        task=task,
+        status=RunStatus.RUNNING,
+        unresolved_errors=(),
+        working_set={},
+        workspace_map=build_sample_workspace(tmp_path),
+        history=(),
+        observations=(),
+        active_skills={"large": "PRIVATE-BEGIN\n" + "x" * 64_000 + "\nPRIVATE-END"},
+    )
+    combined = "\n".join(message.content or "" for message in messages)
+
+    assert context_char_count(messages) <= 8_000
+    assert task in combined
+    assert "Active Skill: large" in combined
+    assert "[Skill instructions truncated by BlueWhale context budget]" in combined
+
+
+def test_each_active_skill_remains_visible_when_shared_budget_is_exhausted(
+    tmp_path: Path,
+) -> None:
+    messages = ContextManager(max_chars=8_000).build(
+        system_prompt="system rules",
+        task="TASK-MUST-STAY",
+        status=RunStatus.RUNNING,
+        unresolved_errors=(),
+        working_set={},
+        workspace_map=build_sample_workspace(tmp_path),
+        history=(),
+        observations=(),
+        active_skills={
+            "first": "FIRST-SKILL-BODY\n" + "x" * 20_000,
+            "second": "SECOND-SKILL-BODY\n" + "y" * 20_000,
+        },
+    )
+    combined = "\n".join(message.content or "" for message in messages)
+
+    assert "TASK-MUST-STAY" in combined
+    assert "Active Skill: first" in combined
+    assert "Active Skill: second" in combined
+    assert "FIRST-SKILL-BODY" in combined
+    assert "SECOND-SKILL-BODY" in combined
+
+
+def test_context_rejects_more_active_skills_than_can_be_represented(
+    tmp_path: Path,
+) -> None:
+    active_skills = {
+        f"skill-{index}": "instructions" for index in range(MAX_ACTIVE_SKILLS + 1)
+    }
+
+    with pytest.raises(ContextBudgetError, match="active Skill limit"):
+        ContextManager(max_chars=50_000).build(
+            system_prompt="system rules",
+            task="run tests",
+            status=RunStatus.RUNNING,
+            unresolved_errors=(),
+            working_set={},
+            workspace_map=build_sample_workspace(tmp_path),
+            history=(),
+            observations=(),
+            active_skills=active_skills,
+        )
+
+
+def test_every_supported_active_skill_keeps_its_heading(tmp_path: Path) -> None:
+    active_skills = {
+        f"skill-{index}": f"BODY-{index}\n" + "x" * 2_000
+        for index in range(MAX_ACTIVE_SKILLS)
+    }
+
+    messages = ContextManager(max_chars=8_000).build(
+        system_prompt="system rules",
+        task="TASK-MUST-STAY",
+        status=RunStatus.RUNNING,
+        unresolved_errors=(),
+        working_set={},
+        workspace_map=build_sample_workspace(tmp_path),
+        history=(),
+        observations=(),
+        active_skills=active_skills,
+    )
+    combined = "\n".join(message.content or "" for message in messages)
+
+    assert "TASK-MUST-STAY" in combined
+    for name in active_skills:
+        assert f"# Active Skill: {name}" in combined
 
 
 def test_context_respects_budget_without_breaking_tool_pairs(tmp_path: Path) -> None:

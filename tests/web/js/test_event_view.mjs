@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   findPendingApproval,
   instructionEvidence,
+  skillEvidence,
 } from "../../../src/bluewhale_agent/web/static/js/event-view.js";
 
 function approvalRequested(id, status = "pending") {
@@ -89,6 +90,36 @@ test("projects scoped instruction sources without exposing full rule text", () =
       actionId: "read-1",
       target: "src/app.py",
       sources: ["AGENTS.md", "src/AGENTS.md"],
+    },
+  ]);
+});
+
+test("projects applied Skill metadata without exposing instructions", () => {
+  const evidence = skillEvidence([
+    {
+      event: {
+        kind: "skill_applied",
+        payload: {
+          name: "python-testing",
+          source: ".agents/skills/python-testing/SKILL.md",
+          scope: "project",
+          trigger: "model",
+          summary: "Discover Python tests",
+          resource_count: 2,
+          instructions: "must not leak",
+        },
+      },
+    },
+  ]);
+
+  assert.deepEqual(evidence, [
+    {
+      name: "python-testing",
+      source: ".agents/skills/python-testing/SKILL.md",
+      scope: "project",
+      trigger: "model",
+      summary: "Discover Python tests",
+      resourceCount: 2,
     },
   ]);
 });

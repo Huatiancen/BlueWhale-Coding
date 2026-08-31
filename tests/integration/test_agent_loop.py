@@ -23,6 +23,7 @@ from bluewhale_agent.domain.models import (
 from bluewhale_agent.evidence.ledger import EvidenceKind
 from bluewhale_agent.providers.base import ModelProtocolError, StreamInterruptedError
 from bluewhale_agent.runtime.permissions import PermissionMode, PermissionResult
+from bluewhale_agent.skills.models import MAX_ACTIVE_SKILLS
 from tests.fakes import FakeModelProvider
 
 
@@ -299,6 +300,247 @@ async def test_scoped_agents_rules_are_loaded_after_target_file_is_selected(
         ObservationStatus.SUCCESS,
     ]
     assert result.final_answer == "文件已检查。"
+
+
+@pytest.mark.asyncio
+async def test_skill_catalog_is_disclosed_before_full_skill_is_loaded(tmp_path: Path) -> None:
+    skill = tmp_path / ".bluewhale" / "skills" / "python-testing"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        "---\n"
+        "name: python-testing\n"
+        "description: Use when running Python tests.\n"
+        "---\n\n"
+        "PRIVATE SKILL WORKFLOW\n",
+        encoding="utf-8",
+    )
+    provider = FakeModelProvider(
+        [
+            response(actions=(action("skill-1", "load_skill", name="python-testing"),)),
+            response(content="已按 Skill 检查。"),
+        ]
+    )
+
+    result = await AgentLoop(
+        run_id="skill-disclosure",
+        workspace=tmp_path,
+        provider=provider,
+        skill_user_home=tmp_path / "home",
+    ).run("运行 Python 测试")
+
+    first_context = "\n".join(message.content or "" for message in provider.calls[0][0])
+    assert "python-testing" in first_context
+    assert "PRIVATE SKILL WORKFLOW" not in first_context
+    assert any(
+        schema["function"]["name"] == "load_skill" for schema in provider.calls[0][1]
+    )
+    second_system = "\n".join(
+        message.content or ""
+        for message in provider.calls[1][0]
+        if message.role is MessageRole.SYSTEM
+    )
+    assert "PRIVATE SKILL WORKFLOW" in second_system
+    second_context = "\n".join(message.content or "" for message in provider.calls[1][0])
+    assert second_context.count("PRIVATE SKILL WORKFLOW") == 1
+    load_results = [
+        message
+        for message in provider.calls[1][0]
+        if message.role is MessageRole.TOOL and message.tool_call_id == "skill-1"
+    ]
+    assert len(load_results) == 1
+    assert "PRIVATE SKILL WORKFLOW" not in (load_results[0].content or "")
+    applied = [
+        item.event.payload
+        for item in result.trajectory.events_after(0)
+        if item.event.kind is EventKind.SKILL_APPLIED
+    ]
+    assert applied == [
+        {
+            "name": "python-testing",
+            "source": ".bluewhale/skills/python-testing/SKILL.md",
+            "scope": "project",
+            "trigger": "model",
+            "summary": "Use when running Python tests.",
+            "resource_count": 0,
+        }
+    ]
+    checkpoint = (tmp_path / ".bluewhale" / "runs" / "skill-disclosure" / "checkpoint.json")
+    assert "PRIVATE SKILL WORKFLOW" not in checkpoint.read_text(encoding="utf-8")
+    observations = [
+        item.event.payload["observation"]
+        for item in result.trajectory.events_after(0)
+        if item.event.kind is EventKind.OBSERVATION_RECEIVED
+        and item.event.payload["observation"]["action_id"] == "skill-1"
+    ]
+    assert observations[0]["content"] == ""
+    stored_checkpoint = RunCheckpointStore(tmp_path, "skill-disclosure").load_latest()
+    assert stored_checkpoint is not None
+    assert stored_checkpoint.active_skill_names == ("python-testing",)
+
+
+@pytest.mark.asyncio
+async def test_loading_same_skill_twice_emits_one_application_event(tmp_path: Path) -> None:
+    skill = tmp_path / ".agents" / "skills" / "review"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        "---\nname: review\ndescription: Review code.\n---\nReview carefully.\n",
+        encoding="utf-8",
+    )
+    provider = FakeModelProvider(
+        [
+            response(actions=(action("skill-1", "load_skill", name="review"),)),
+            response(actions=(action("skill-2", "load_skill", name="review"),)),
+            response(content="完成。"),
+        ]
+    )
+
+    result = await AgentLoop(
+        run_id="skill-repeat",
+        workspace=tmp_path,
+        provider=provider,
+        skill_user_home=tmp_path / "home",
+    ).run("审查代码")
+
+    assert len(
+        [
+            item
+            for item in result.trajectory.events_after(0)
+            if item.event.kind is EventKind.SKILL_APPLIED
+        ]
+    ) == 1
+
+
+@pytest.mark.asyncio
+async def test_loading_more_than_active_skill_limit_returns_visible_error(
+    tmp_path: Path,
+) -> None:
+    actions = []
+    for index in range(MAX_ACTIVE_SKILLS + 1):
+        name = f"skill-{index}"
+        skill = tmp_path / ".agents" / "skills" / name
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: Skill {index}.\n---\nBODY-{index}\n",
+            encoding="utf-8",
+        )
+        actions.append(action(f"load-{index}", "load_skill", name=name))
+    provider = FakeModelProvider(
+        [response(actions=tuple(actions)), response(content="已处理容量错误。")]
+    )
+
+    result = await AgentLoop(
+        run_id="skill-capacity",
+        workspace=tmp_path,
+        provider=provider,
+        skill_user_home=tmp_path / "home",
+    ).run("加载全部技能")
+
+    applied = [
+        item
+        for item in result.trajectory.events_after(0)
+        if item.event.kind is EventKind.SKILL_APPLIED
+    ]
+    assert len(applied) == MAX_ACTIVE_SKILLS
+    final_observation = [
+        item.event.payload["observation"]
+        for item in result.trajectory.events_after(0)
+        if item.event.kind is EventKind.OBSERVATION_RECEIVED
+        and item.event.payload["observation"]["action_id"]
+        == f"load-{MAX_ACTIVE_SKILLS}"
+    ][0]
+    assert final_observation["status"] == "error"
+    assert "active Skill limit" in final_observation["summary"]
+
+
+@pytest.mark.asyncio
+async def test_explicit_skill_preloads_hidden_skill_and_passes_arguments_separately(
+    tmp_path: Path,
+) -> None:
+    skill = tmp_path / ".bluewhale" / "skills" / "release"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        "---\n"
+        "name: release\n"
+        "description: Publish a release.\n"
+        "disable-model-invocation: true\n"
+        "---\n\n"
+        "HIDDEN RELEASE WORKFLOW\n",
+        encoding="utf-8",
+    )
+    provider = FakeModelProvider([response(content="已准备发布。")])
+
+    result = await AgentLoop(
+        run_id="explicit-skill",
+        workspace=tmp_path,
+        provider=provider,
+        skill_user_home=tmp_path / "home",
+    ).run("/skill:release prepare version 1.2.0")
+
+    first = provider.calls[0][0]
+    systems = "\n".join(
+        message.content or "" for message in first if message.role is MessageRole.SYSTEM
+    )
+    users = "\n".join(
+        message.content or "" for message in first if message.role is MessageRole.USER
+    )
+    assert "HIDDEN RELEASE WORKFLOW" in systems
+    assert "prepare version 1.2.0" in users
+    assert "/skill:release" not in users
+    applied = [
+        item.event.payload
+        for item in result.trajectory.events_after(0)
+        if item.event.kind is EventKind.SKILL_APPLIED
+    ]
+    assert applied[0]["trigger"] == "explicit"
+
+
+@pytest.mark.asyncio
+async def test_unknown_explicit_skill_fails_without_calling_model(tmp_path: Path) -> None:
+    provider = FakeModelProvider([])
+
+    result = await AgentLoop(
+        run_id="missing-explicit-skill",
+        workspace=tmp_path,
+        provider=provider,
+        skill_user_home=tmp_path / "home",
+    ).run("/skill:missing do work")
+
+    assert provider.calls == []
+    assert result.status is RunStatus.FAILED
+    assert result.stop_reason is StopReason.TOOL_ERROR
+    assert result.final_answer == "无法加载 Skill：Unknown skill: missing"
+
+
+@pytest.mark.asyncio
+async def test_resume_checkpoint_reloads_active_skill_from_current_disk(tmp_path: Path) -> None:
+    skill = tmp_path / ".agents" / "skills" / "review"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        "---\nname: review\ndescription: Review code.\n---\nCURRENT REVIEW WORKFLOW\n",
+        encoding="utf-8",
+    )
+    checkpoint = RunCheckpoint(
+        run_id="resume-active-skill",
+        task="审查项目",
+        phase=CheckpointPhase.INTERRUPTED,
+        active_skill_names=("review",),
+    )
+    provider = FakeModelProvider([response(content="恢复完成。")])
+
+    await AgentLoop(
+        run_id="resume-active-skill",
+        workspace=tmp_path,
+        provider=provider,
+        resume_checkpoint=checkpoint,
+        skill_user_home=tmp_path / "home",
+    ).run("继续")
+
+    system_context = "\n".join(
+        message.content or ""
+        for message in provider.calls[0][0]
+        if message.role is MessageRole.SYSTEM
+    )
+    assert "CURRENT REVIEW WORKFLOW" in system_context
 
 
 @pytest.mark.asyncio

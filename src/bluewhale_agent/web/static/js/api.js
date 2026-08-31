@@ -5,6 +5,7 @@ const EVENT_TYPES = [
   "model_delta",
   "plan_updated",
   "instructions_applied",
+  "skill_applied",
   "instruction_queued",
   "instruction_delivered",
   "instruction_withdrawn",

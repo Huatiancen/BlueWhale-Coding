@@ -18,6 +18,7 @@ class EventKind(StrEnum):
     MODEL_DELTA = "model_delta"
     PLAN_UPDATED = "plan_updated"
     INSTRUCTIONS_APPLIED = "instructions_applied"
+    SKILL_APPLIED = "skill_applied"
     INSTRUCTION_QUEUED = "instruction_queued"
     INSTRUCTION_DELIVERED = "instruction_delivered"
     INSTRUCTION_WITHDRAWN = "instruction_withdrawn"

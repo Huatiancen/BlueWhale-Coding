@@ -41,6 +41,7 @@ class RunCheckpoint(BaseModel):
     messages: tuple[Message, ...] = ()
     pending_action: Action | None = None
     completed_action_ids: tuple[str, ...] = ()
+    active_skill_names: tuple[str, ...] = ()
     changeset_id: str | None = None
     recorded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
