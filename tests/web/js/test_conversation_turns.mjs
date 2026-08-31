@@ -203,6 +203,33 @@ test("keeps work events isolated inside their own conversation turn", () => {
   );
 });
 
+test("keeps queued follow-ups outside chat and shows steering only after delivery", () => {
+  const timeline = conversationTimeline(
+    { task: "第一轮" },
+    [
+      stored(1, "run_started", { task: "第一轮" }),
+      stored(2, "follow_up_queued", {
+        follow_up: { id: "later", content: "下一轮再做" },
+      }),
+      stored(3, "instruction_queued", {
+        instruction: { id: "steer", content: "现在换方向" },
+      }),
+      stored(4, "instruction_queued", {
+        instruction: { id: "waiting", content: "尚未送达" },
+      }),
+      stored(5, "instruction_delivered", {
+        instruction_id: "steer",
+        content: "现在换方向",
+      }),
+    ],
+  );
+
+  const messages = timeline
+    .filter((entry) => entry.kind === "user")
+    .map((entry) => entry.content);
+  assert.deepEqual(messages, ["第一轮", "现在换方向"]);
+});
+
 function stored(sequence, kind, payload) {
   return { sequence, event: { kind, payload } };
 }

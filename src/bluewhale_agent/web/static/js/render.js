@@ -1,5 +1,6 @@
 import { conversationTimeline } from "./conversation-turns.js";
 import { findPendingApproval, instructionEvidence, skillEvidence } from "./event-view.js";
+import { pendingFollowUps } from "./follow-up-view.js";
 import { renderMarkdown } from "./markdown.js";
 import { createMessageCopyButton } from "./message-copy.js";
 import { groupRunsByProject } from "./project-groups.js";
@@ -28,9 +29,15 @@ export function renderWorkspace(elements, snapshot, callbacks) {
     callbacks.onSelectArtifact,
     callbacks.onUndoChangeset,
     callbacks.onUndoFile,
-    callbacks.onWithdrawInstruction,
   );
   renderApprovalDock(elements, events, run, callbacks.onResolveApproval);
+  renderFollowUpDock(
+    elements,
+    events,
+    run,
+    callbacks.onSteerFollowUp,
+    callbacks.onWithdrawFollowUp,
+  );
 }
 
 function renderConnection(elements, connectionState) {
@@ -137,7 +144,6 @@ function renderConversation(
   onSelectArtifact,
   onUndoChangeset,
   onUndoFile,
-  onWithdrawInstruction,
 ) {
   elements.conversation.replaceChildren();
   elements.conversationEmpty.hidden = Boolean(run);
@@ -150,16 +156,6 @@ function renderConversation(
         element("p", "", entry.content),
         createMessageCopyButton(entry.content, { onError: onCopyError }),
       );
-      if (entry.queued && entry.instructionId) {
-        const withdraw = element("button", "instruction-withdraw", "撤回");
-        withdraw.type = "button";
-        withdraw.addEventListener("click", async () => {
-          withdraw.disabled = true;
-          const ok = await onWithdrawInstruction?.(entry.instructionId);
-          if (!ok) withdraw.disabled = false;
-        });
-        message.append(element("span", "instruction-state", "等待发送"), withdraw);
-      }
       elements.conversation.append(message);
     } else if (entry.kind === "work") {
       elements.conversation.append(createWorkDetails(entry));
@@ -180,6 +176,51 @@ function renderConversation(
   }
   const scroller = elements.conversation.closest(".conversation-scroll");
   scroller.scrollTop = scroller.scrollHeight;
+}
+
+function renderFollowUpDock(
+  elements,
+  events,
+  run,
+  onSteerFollowUp,
+  onWithdrawFollowUp,
+) {
+  elements.followUpDock.replaceChildren();
+  const pending = run?.historical ? [] : pendingFollowUps(events);
+  elements.followUpDock.hidden = pending.length === 0;
+  for (const followUp of pending) {
+    elements.followUpDock.append(
+      followUpCard(followUp, onSteerFollowUp, onWithdrawFollowUp),
+    );
+  }
+}
+
+function followUpCard(followUp, onSteerFollowUp, onWithdrawFollowUp) {
+  const card = element("article", "follow-up-card");
+  const prompt = element("p", "follow-up-content", followUp.content);
+  prompt.title = followUp.content;
+  const actions = element("div", "follow-up-actions");
+  const steer = element("button", "follow-up-steer", "↪ 调整方向");
+  steer.type = "button";
+  const remove = element("button", "follow-up-remove", "⌫");
+  remove.type = "button";
+  remove.setAttribute("aria-label", "删除排队追问");
+  remove.title = "删除";
+
+  async function act(callback) {
+    steer.disabled = true;
+    remove.disabled = true;
+    if (!(await callback?.(followUp.id))) {
+      steer.disabled = false;
+      remove.disabled = false;
+    }
+  }
+
+  steer.addEventListener("click", () => act(onSteerFollowUp));
+  remove.addEventListener("click", () => act(onWithdrawFollowUp));
+  actions.append(steer, remove);
+  card.append(element("span", "follow-up-icon", "↳"), prompt, actions);
+  return card;
 }
 
 function changeSetCard(entry, onSelectArtifact, onUndoChangeset, onUndoFile) {

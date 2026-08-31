@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
-from bluewhale_agent.agent.steering import RuntimeInstruction
+from bluewhale_agent.agent.steering import QueuedFollowUp, RuntimeInstruction
 from bluewhale_agent.config import Settings
 from bluewhale_agent.history.conversation import ConversationHistoryError
 from bluewhale_agent.history.repository import HistoryRepository
@@ -36,6 +36,7 @@ from bluewhale_agent.web.desktop_auth import DESKTOP_COOKIE, DesktopSessionGuard
 from bluewhale_agent.web.schemas import (
     ApprovalResolveRequest,
     FileUndoRequest,
+    FollowUpRequest,
     HealthResponse,
     RunContinueRequest,
     RunCreateRequest,
@@ -274,6 +275,43 @@ def create_app(
     ) -> RuntimeInstruction:
         try:
             return manager.withdraw_instruction(run_id, instruction_id)
+        except RunNotFoundError as error:
+            raise HTTPException(status_code=404, detail=f"Unknown run: {run_id}") from error
+        except RunConflictError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post(
+        "/api/runs/{run_id}/follow-ups",
+        response_model=QueuedFollowUp,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def queue_follow_up(run_id: str, request: FollowUpRequest) -> QueuedFollowUp:
+        try:
+            return manager.queue_follow_up(run_id, request.content)
+        except RunNotFoundError as error:
+            raise HTTPException(status_code=404, detail=f"Unknown run: {run_id}") from error
+        except RunConflictError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post(
+        "/api/runs/{run_id}/follow-ups/{follow_up_id}/steer",
+        response_model=RuntimeInstruction,
+    )
+    async def steer_follow_up(run_id: str, follow_up_id: str) -> RuntimeInstruction:
+        try:
+            return manager.steer_follow_up(run_id, follow_up_id)
+        except RunNotFoundError as error:
+            raise HTTPException(status_code=404, detail=f"Unknown run: {run_id}") from error
+        except RunConflictError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.delete(
+        "/api/runs/{run_id}/follow-ups/{follow_up_id}",
+        response_model=QueuedFollowUp,
+    )
+    async def withdraw_follow_up(run_id: str, follow_up_id: str) -> QueuedFollowUp:
+        try:
+            return manager.withdraw_follow_up(run_id, follow_up_id)
         except RunNotFoundError as error:
             raise HTTPException(status_code=404, detail=f"Unknown run: {run_id}") from error
         except RunConflictError as error:

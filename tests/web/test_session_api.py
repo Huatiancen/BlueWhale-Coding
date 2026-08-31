@@ -35,6 +35,27 @@ class BlockingProvider:
         raise AssertionError("unreachable")
 
 
+class TwoTurnProvider:
+    def __init__(self) -> None:
+        self.first_started = asyncio.Event()
+        self.release_first = asyncio.Event()
+        self.calls: list[list[object]] = []
+
+    async def complete(
+        self,
+        messages: list[object],
+        _tools: list[dict[str, object]],
+    ) -> ModelResponse:
+        self.calls.append(list(messages))
+        if len(self.calls) == 1:
+            self.first_started.set()
+            await self.release_first.wait()
+            return ModelResponse(content="第一轮完成。", finish_reason="stop")
+        if len(self.calls) == 2:
+            return ModelResponse(content="第二轮完成。", finish_reason="stop")
+        raise AssertionError("unexpected model request")
+
+
 def test_run_create_request_defaults_to_balanced_permission() -> None:
     request = RunCreateRequest(task="Inspect")
 
@@ -159,6 +180,126 @@ async def test_running_task_accepts_and_withdraws_queued_instruction(tmp_path: P
     assert queued.status_code == 202
     assert withdrawn.status_code == 200
     assert withdrawn.json()["content"] == "不要修改配置"
+
+
+@pytest.mark.asyncio
+async def test_running_task_can_queue_steer_and_withdraw_follow_ups(tmp_path: Path) -> None:
+    provider = BlockingProvider()
+    app = create_app(workspace=tmp_path, provider_factory=lambda: provider)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post("/api/runs", json={"run_id": "follow-ups", "task": "等待"})
+        await asyncio.wait_for(provider.started.wait(), timeout=1)
+        steered = await client.post(
+            "/api/runs/follow-ups/follow-ups", json={"content": "立刻换方向"}
+        )
+        steered_id = steered.json()["id"]
+        steered_response = await client.post(
+            f"/api/runs/follow-ups/follow-ups/{steered_id}/steer"
+        )
+        queued = await client.post(
+            "/api/runs/follow-ups/follow-ups", json={"content": "下一轮再处理"}
+        )
+        follow_up_id = queued.json()["id"]
+        withdrawn = await client.delete(
+            f"/api/runs/follow-ups/follow-ups/{follow_up_id}"
+        )
+        repeated = await client.delete(
+            f"/api/runs/follow-ups/follow-ups/{follow_up_id}"
+        )
+        session = app.state.sessions.get("follow-ups")
+        pending_instructions = [
+            item.content for item in session.instruction_queue.pending
+        ]
+        await client.post("/api/runs/follow-ups/stop")
+
+    assert steered.status_code == 202
+    assert steered_response.status_code == 200
+    assert steered_response.json()["content"] == "立刻换方向"
+    assert pending_instructions == ["立刻换方向"]
+    assert withdrawn.status_code == 200
+    assert withdrawn.json()["content"] == "下一轮再处理"
+    assert repeated.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_completed_run_rejects_new_follow_up(client: httpx.AsyncClient) -> None:
+    await client.post("/api/runs", json={"run_id": "done-follow-up", "task": "完成"})
+    await wait_for_terminal(client, "done-follow-up")
+
+    response = await client.post(
+        "/api/runs/done-follow-up/follow-ups", json={"content": "太晚了"}
+    )
+
+    assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_queued_follow_up_automatically_runs_as_next_turn(tmp_path: Path) -> None:
+    provider = TwoTurnProvider()
+    app = create_app(workspace=tmp_path, provider_factory=lambda: provider)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post(
+            "/api/runs", json={"run_id": "serial", "task": "先检查项目"}
+        )
+        await asyncio.wait_for(provider.first_started.wait(), timeout=1)
+        queued = await client.post(
+            "/api/runs/serial/follow-ups", json={"content": "再解释边界条件"}
+        )
+        provider.release_first.set()
+        finished = await wait_for_terminal(client, "serial")
+        replayed = await client.get("/api/runs/serial/events")
+
+    assert queued.status_code == 202
+    assert finished["final_answer"] == "第二轮完成。"
+    assert len(provider.calls) == 2
+    assert any(
+        getattr(message, "role", None) is MessageRole.USER
+        and getattr(message, "content", None) == "先检查项目"
+        for message in provider.calls[1]
+    )
+    event_names = [event["event"] for event in parse_sse(replayed.text)]
+    assert event_names.count("run_started") == 2
+    assert event_names.count("run_finished") == 2
+    assert "follow_up_queued" in event_names
+    assert "follow_up_started" in event_names
+
+
+@pytest.mark.asyncio
+async def test_provider_failure_withdraws_every_remaining_follow_up(tmp_path: Path) -> None:
+    provider = TwoTurnProvider()
+    factory_calls = 0
+
+    def provider_factory() -> TwoTurnProvider:
+        nonlocal factory_calls
+        factory_calls += 1
+        if factory_calls > 1:
+            raise ValueError("provider unavailable")
+        return provider
+
+    app = create_app(workspace=tmp_path, provider_factory=provider_factory)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post("/api/runs", json={"run_id": "provider-fails", "task": "开始"})
+        await asyncio.wait_for(provider.first_started.wait(), timeout=1)
+        await client.post(
+            "/api/runs/provider-fails/follow-ups", json={"content": "第一条"}
+        )
+        await client.post(
+            "/api/runs/provider-fails/follow-ups", json={"content": "第二条"}
+        )
+        provider.release_first.set()
+        await wait_for_terminal(client, "provider-fails")
+        replayed = await client.get("/api/runs/provider-fails/events")
+
+    withdrawn = [
+        event["data"]["event"]["payload"]
+        for event in parse_sse(replayed.text)
+        if event["event"] == "follow_up_withdrawn"
+    ]
+    assert [item["content"] for item in withdrawn] == ["第一条", "第二条"]
+    assert all(item["reason"] == "provider_unavailable" for item in withdrawn)
 
 
 @pytest.mark.asyncio

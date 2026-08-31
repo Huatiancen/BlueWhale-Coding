@@ -14,7 +14,12 @@ from pydantic import ValidationError
 
 from bluewhale_agent.agent.checkpoints import CheckpointPhase, RunCheckpointStore
 from bluewhale_agent.agent.loop import AgentLoop, AgentRunResult
-from bluewhale_agent.agent.steering import RuntimeInstruction, RuntimeInstructionQueue
+from bluewhale_agent.agent.steering import (
+    QueuedFollowUp,
+    QueuedFollowUpQueue,
+    RuntimeInstruction,
+    RuntimeInstructionQueue,
+)
 from bluewhale_agent.domain.events import EventKind, RunEvent
 from bluewhale_agent.domain.models import Action, Limits, RunStatus
 from bluewhale_agent.history.conversation import restore_conversation
@@ -23,7 +28,7 @@ from bluewhale_agent.history.projector import project_history
 from bluewhale_agent.history.repository import HistoryRecord, HistoryRepository
 from bluewhale_agent.providers.base import ModelProvider
 from bluewhale_agent.runtime.changeset import ChangeSetSnapshot
-from bluewhale_agent.runtime.permissions import PermissionResult
+from bluewhale_agent.runtime.permissions import PermissionMode, PermissionResult
 from bluewhale_agent.runtime.undo import (
     ChangeSetUndoError,
     undo_changeset,
@@ -65,6 +70,8 @@ class RunSession:
     trajectory: TrajectoryStore
     event_bus: EventBus
     instruction_queue: RuntimeInstructionQueue
+    follow_up_queue: QueuedFollowUpQueue
+    permission_mode: PermissionMode
     status: RunStatus = RunStatus.INITIALIZING
     background: asyncio.Task[None] | None = None
     result: AgentRunResult | None = None
@@ -188,6 +195,8 @@ class SessionManager:
                 trajectory=trajectory,
                 event_bus=event_bus,
                 instruction_queue=RuntimeInstructionQueue(),
+                follow_up_queue=QueuedFollowUpQueue(),
+                permission_mode=request.permission_mode,
                 status=RunStatus.RUNNING,
             )
             if self._history is not None:
@@ -300,6 +309,8 @@ class SessionManager:
                 trajectory=trajectory,
                 event_bus=event_bus,
                 instruction_queue=RuntimeInstructionQueue(),
+                follow_up_queue=QueuedFollowUpQueue(),
+                permission_mode=request.permission_mode,
                 status=RunStatus.RUNNING,
             )
 
@@ -378,6 +389,16 @@ class SessionManager:
                     "reason": "run_stopped",
                 },
             )
+        for follow_up in session.follow_up_queue.drain():
+            self._publish(
+                session,
+                EventKind.FOLLOW_UP_WITHDRAWN,
+                {
+                    "follow_up_id": follow_up.id,
+                    "content": follow_up.content,
+                    "reason": "run_stopped",
+                },
+            )
         pending = self.approvals.pending_for_run(run_id)
         self.approvals.cancel_run(run_id)
         for approval in pending:
@@ -416,6 +437,56 @@ class SessionManager:
             {"instruction_id": instruction.id},
         )
         return instruction
+
+    def queue_follow_up(self, run_id: str, content: str) -> QueuedFollowUp:
+        session = self.get(run_id)
+        if isinstance(session, HistoricalSession) or not self._is_active(session):
+            raise RunConflictError("Follow-ups can only be queued while a task is running")
+        follow_up = session.follow_up_queue.enqueue(content)
+        self._publish(
+            session,
+            EventKind.FOLLOW_UP_QUEUED,
+            {"follow_up": follow_up.model_dump(mode="json")},
+        )
+        return follow_up
+
+    def steer_follow_up(self, run_id: str, follow_up_id: str) -> RuntimeInstruction:
+        session = self.get(run_id)
+        if isinstance(session, HistoricalSession) or not self._is_active(session):
+            raise RunConflictError("Follow-ups can only steer a running task")
+        follow_up = session.follow_up_queue.take_for_steering(follow_up_id)
+        if follow_up is None:
+            raise RunConflictError("Follow-up was already handled or does not exist")
+        instruction = session.instruction_queue.enqueue(follow_up.content)
+        self._publish(
+            session,
+            EventKind.FOLLOW_UP_STEERED,
+            {
+                "follow_up_id": follow_up.id,
+                "instruction_id": instruction.id,
+                "content": follow_up.content,
+            },
+        )
+        self._publish(
+            session,
+            EventKind.INSTRUCTION_QUEUED,
+            {"instruction": instruction.model_dump(mode="json")},
+        )
+        return instruction
+
+    def withdraw_follow_up(self, run_id: str, follow_up_id: str) -> QueuedFollowUp:
+        session = self.get(run_id)
+        if isinstance(session, HistoricalSession):
+            raise RunConflictError("Historical runs are read-only")
+        follow_up = session.follow_up_queue.withdraw(follow_up_id)
+        if follow_up is None:
+            raise RunConflictError("Follow-up was already handled or does not exist")
+        self._publish(
+            session,
+            EventKind.FOLLOW_UP_WITHDRAWN,
+            {"follow_up_id": follow_up.id, "content": follow_up.content},
+        )
+        return follow_up
 
     async def undo_changeset(self, run_id: str, changeset_sequence: int) -> StoredEvent:
         """Safely revert one persisted change set and record the result."""
@@ -649,9 +720,72 @@ class SessionManager:
         return stored
 
     async def _execute(self, session: RunSession, loop: AgentLoop, task: str) -> None:
-        result = await loop.run(task)
-        session.result = result
-        session.status = result.status
+        current_loop = loop
+        current_task = task
+        while True:
+            result = await current_loop.run(current_task)
+            session.result = result
+            session.status = result.status
+            if session.cancel_event.is_set():
+                return
+            follow_up = session.follow_up_queue.pop_next()
+            if follow_up is None:
+                return
+            try:
+                provider = self._provider_factory()
+            except (ValueError, RuntimeError):
+                unavailable = (follow_up, *session.follow_up_queue.drain())
+                for pending_follow_up in unavailable:
+                    self._publish(
+                        session,
+                        EventKind.FOLLOW_UP_WITHDRAWN,
+                        {
+                            "follow_up_id": pending_follow_up.id,
+                            "content": pending_follow_up.content,
+                            "reason": "provider_unavailable",
+                        },
+                    )
+                return
+            seed = restore_conversation(session.trajectory.events_after(0))
+            checkpoint = RunCheckpointStore(
+                session.workspace,
+                session.id,
+                runs_root=session.trajectory.run_dir.parent,
+            ).load_latest()
+            if checkpoint is not None and checkpoint.phase in {
+                CheckpointPhase.COMPLETED,
+                CheckpointPhase.FAILED,
+            }:
+                checkpoint = None
+            self._publish(
+                session,
+                EventKind.FOLLOW_UP_STARTED,
+                {"follow_up_id": follow_up.id, "content": follow_up.content},
+            )
+            session.result = None
+            session.status = RunStatus.RUNNING
+
+            async def approval_handler(
+                action: Action, permission: PermissionResult
+            ) -> bool:
+                return await self._request_approval(session, action, permission)
+
+            current_loop = AgentLoop(
+                run_id=session.id,
+                workspace=session.workspace,
+                provider=provider,
+                limits=self._limits,
+                cancel_event=session.cancel_event,
+                trajectory=session.trajectory,
+                event_sink=lambda stored: self._record_event(session, stored),
+                approval_handler=approval_handler,
+                permission_mode=session.permission_mode,
+                initial_history=seed.messages,
+                initial_observations=seed.observations,
+                instruction_queue=session.instruction_queue,
+                resume_checkpoint=checkpoint,
+            )
+            current_task = follow_up.content
 
     def _record_event(self, session: RunSession, stored: StoredEvent) -> None:
         session.event_bus.publish(stored)

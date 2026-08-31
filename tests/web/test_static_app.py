@@ -37,6 +37,7 @@ async def test_root_serves_accessible_conversation_workspace(tmp_path: Path) -> 
     assert 'id="conversation-shell"' in html
     assert 'id="composer-shell"' in html
     assert 'id="approval-dock"' in html
+    assert 'id="follow-up-dock"' in html
     assert 'id="artifact-inspector"' in html
     assert 'id="inspector-content"' in html
     assert 'id="sidebar-resizer"' in html
@@ -44,7 +45,8 @@ async def test_root_serves_accessible_conversation_workspace(tmp_path: Path) -> 
     assert html.count('role="separator"') == 2
     composer = html[html.index('id="composer-shell"') :]
     assert composer.index('id="app-notice"') < composer.index('id="approval-dock"')
-    assert composer.index('id="approval-dock"') < composer.index('id="task-form"')
+    assert composer.index('id="approval-dock"') < composer.index('id="follow-up-dock"')
+    assert composer.index('id="follow-up-dock"') < composer.index('id="task-form"')
     assert 'id="work-details"' not in html
     assert 'id="activity-timeline"' not in html
     assert 'id="changes-panel"' not in html
@@ -101,6 +103,8 @@ def test_styles_define_bluewhale_palette_and_responsive_layout() -> None:
     assert ".composer-shell" in css
     assert ".approval-dock" in css
     assert ".approval-dock[hidden]" in css
+    assert ".follow-up-dock[hidden]" in css
+    assert ".follow-up-card" in css
     assert ".approval-card::before" in css
     assert ".approval-command-preview" in css
     assert ".approval-risk-label" in css
@@ -174,6 +178,7 @@ def test_frontend_uses_safe_dom_rendering_and_modular_state() -> None:
         "desktop.js",
         "diff-view.js",
         "event-view.js",
+        "follow-up-view.js",
         "home-prompt.js",
         "markdown.js",
         "message-copy.js",

@@ -9,6 +9,10 @@ const EVENT_TYPES = [
   "instruction_queued",
   "instruction_delivered",
   "instruction_withdrawn",
+  "follow_up_queued",
+  "follow_up_steered",
+  "follow_up_withdrawn",
+  "follow_up_started",
   "action_requested",
   "approval_requested",
   "approval_resolved",
@@ -85,6 +89,27 @@ export function queueInstruction(runId, content) {
 export function withdrawInstruction(runId, instructionId) {
   return request(
     `/api/runs/${encodeURIComponent(runId)}/instructions/${encodeURIComponent(instructionId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function queueFollowUp(runId, content) {
+  return request(`/api/runs/${encodeURIComponent(runId)}/follow-ups`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export function steerFollowUp(runId, followUpId) {
+  return request(
+    `/api/runs/${encodeURIComponent(runId)}/follow-ups/${encodeURIComponent(followUpId)}/steer`,
+    { method: "POST" },
+  );
+}
+
+export function withdrawFollowUp(runId, followUpId) {
+  return request(
+    `/api/runs/${encodeURIComponent(runId)}/follow-ups/${encodeURIComponent(followUpId)}`,
     { method: "DELETE" },
   );
 }

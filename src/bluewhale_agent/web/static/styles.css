@@ -799,24 +799,6 @@ summary:focus-visible {
   bottom: -28px;
 }
 
-.instruction-state {
-  display: inline-block;
-  margin-top: 6px;
-  color: color-mix(in srgb, var(--ink-100) 68%, transparent);
-  font-size: 0.68rem;
-}
-
-.instruction-withdraw {
-  padding: 0;
-  margin-left: 10px;
-  border: 0;
-  color: var(--ink-100);
-  background: transparent;
-  font: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
 @media (hover: none) {
   .message-copy-button {
     opacity: 0.58;
@@ -971,6 +953,88 @@ summary:focus-visible {
 
 .approval-dock[hidden] {
   display: none;
+}
+
+.follow-up-dock {
+  display: grid;
+  width: min(100%, 720px);
+  gap: 6px;
+  margin: 0 auto -1px;
+}
+
+.follow-up-dock[hidden] {
+  display: none;
+}
+
+.follow-up-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 11px 9px 14px;
+  border: 1px solid var(--line-strong);
+  border-bottom-color: var(--line);
+  border-radius: 14px 14px 0 0;
+  color: var(--ink-200);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 -5px 22px rgba(35, 55, 60, 0.04);
+}
+
+.follow-up-icon {
+  color: var(--ink-500);
+  font-size: 0.9rem;
+}
+
+.follow-up-content {
+  overflow: hidden;
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.follow-up-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.follow-up-steer,
+.follow-up-remove {
+  border: 0;
+  color: var(--ink-500);
+  background: transparent;
+  cursor: pointer;
+}
+
+.follow-up-steer {
+  padding: 5px 7px;
+  font: inherit;
+  font-size: 0.72rem;
+}
+
+.follow-up-remove {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border-radius: 7px;
+  font-size: 0.95rem;
+}
+
+.follow-up-steer:hover,
+.follow-up-remove:hover {
+  color: var(--ink-100);
+  background: var(--ocean-850);
+}
+
+.follow-up-steer:disabled,
+.follow-up-remove:disabled {
+  cursor: wait;
+  opacity: 0.48;
 }
 
 .approval-dock .approval-card {
@@ -1317,6 +1381,10 @@ summary {
   background: #f7f8f8;
   box-shadow: 0 8px 30px rgba(35, 55, 60, 0.09);
   transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.follow-up-dock:not([hidden]) + .task-form {
+  border-radius: 0 0 16px 16px;
 }
 
 .task-form:focus-within {

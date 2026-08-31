@@ -135,12 +135,13 @@ function turnTimeline(turn, revertedChangesets, revertedFiles) {
     const payload = stored.event?.payload || {};
     if (kind === "instruction_queued") {
       const instruction = payload.instruction || {};
-      if (!withdrawnInstructions.has(instruction.id)) {
+      if (
+        deliveredInstructions.has(instruction.id) &&
+        !withdrawnInstructions.has(instruction.id)
+      ) {
         timeline.push({
           kind: "user",
           content: instruction.content || "",
-          instructionId: instruction.id,
-          queued: !deliveredInstructions.has(instruction.id),
           eventIndex,
         });
       }

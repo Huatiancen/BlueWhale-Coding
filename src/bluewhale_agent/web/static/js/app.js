@@ -5,12 +5,13 @@ import {
   getRun,
   getRunFile,
   listRuns,
-  queueInstruction,
+  queueFollowUp,
   resolveApproval,
   stopRun,
+  steerFollowUp,
   undoChangeset,
   undoChangesetFiles,
-  withdrawInstruction,
+  withdrawFollowUp,
 } from "./api.js";
 import {
   activateDesktopHistoryWorkspace,
@@ -81,6 +82,7 @@ const elements = {
   conversation: document.querySelector("#conversation-panel"),
   conversationEmpty: document.querySelector("#conversation-empty"),
   approvalDock: document.querySelector("#approval-dock"),
+  followUpDock: document.querySelector("#follow-up-dock"),
   inspector: document.querySelector("#artifact-inspector"),
   inspectorTitle: document.querySelector("#inspector-title"),
   inspectorToolbar: document.querySelector("#inspector-toolbar"),
@@ -141,7 +143,8 @@ subscribe((snapshot) => {
     onSelectArtifact: openArtifact,
     onUndoChangeset: undoActiveChangeset,
     onUndoFile: undoActiveFile,
-    onWithdrawInstruction: withdrawQueuedInstruction,
+    onSteerFollowUp: steerQueuedFollowUp,
+    onWithdrawFollowUp: withdrawQueuedFollowUp,
   });
   updateControls();
   renderPermissionControl(snapshot.permissionMode);
@@ -199,7 +202,7 @@ async function submitTask(event) {
   if (!task) return;
   if (selectedIsActive) {
     try {
-      await queueInstruction(selectedRun.id, task);
+      await queueFollowUp(selectedRun.id, task);
       elements.taskInput.value = "";
       resizeComposer();
     } catch (error) {
@@ -303,10 +306,21 @@ async function undoActiveFile(changesetSequence, path) {
   }
 }
 
-async function withdrawQueuedInstruction(instructionId) {
+async function steerQueuedFollowUp(followUpId) {
   if (!state.activeRunId) return false;
   try {
-    await withdrawInstruction(state.activeRunId, instructionId);
+    await steerFollowUp(state.activeRunId, followUpId);
+    return true;
+  } catch (error) {
+    showNotice(error.message, true);
+    return false;
+  }
+}
+
+async function withdrawQueuedFollowUp(followUpId) {
+  if (!state.activeRunId) return false;
+  try {
+    await withdrawFollowUp(state.activeRunId, followUpId);
     return true;
   } catch (error) {
     showNotice(error.message, true);
@@ -403,7 +417,9 @@ function connectToRun(runId) {
       if (!isCurrentStream()) return;
       addEvent(runId, storedEvent);
       if (
-        storedEvent.event.kind === "instruction_withdrawn" &&
+        ["instruction_withdrawn", "follow_up_withdrawn"].includes(
+          storedEvent.event.kind,
+        ) &&
         storedEvent.event.payload?.reason === "run_stopped" &&
         storedEvent.event.payload?.content
       ) {
