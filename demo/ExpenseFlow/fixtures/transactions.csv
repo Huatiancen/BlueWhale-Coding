@@ -1,0 +1,5 @@
+id,category,amount,status
+T-1001,meal,12.50,completed
+T-1002,meal,-2.50,completed
+T-1003,book,19.99,completed
+T-1004,travel,80.00,pending

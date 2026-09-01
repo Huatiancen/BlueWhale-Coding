@@ -10,9 +10,9 @@ from pathlib import Path
 REPOSITORY = Path(__file__).resolve().parents[2]
 
 
-def test_demo_project_starts_with_a_reproducible_failure(tmp_path: Path) -> None:
-    source = REPOSITORY / "demo" / "bluewhale-repair-demo"
-    workspace = tmp_path / "demo"
+def test_demo_project_starts_with_reproducible_failures(tmp_path: Path) -> None:
+    source = REPOSITORY / "demo" / "ExpenseFlow"
+    workspace = tmp_path / "ExpenseFlow"
     shutil.copytree(source, workspace)
 
     result = subprocess.run(
@@ -24,7 +24,11 @@ def test_demo_project_starts_with_a_reproducible_failure(tmp_path: Path) -> None
     )
 
     assert result.returncode != 0
-    assert "FAILED" in result.stderr
+    assert "FAILED (failures=3)" in result.stderr
+    assert (workspace / "app.py").is_file()
+    assert (
+        workspace / ".bluewhale" / "skills" / "expense-audit" / "SKILL.md"
+    ).is_file()
     assert (workspace / "验证指令.md").is_file()
 
 
