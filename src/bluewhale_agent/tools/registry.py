@@ -83,13 +83,7 @@ class ToolRegistry:
         except ValidationError:
             return self._error(action, f"Invalid arguments for {action.tool_name}", started)
         except PathAccessDeniedError as exc:
-            return Observation(
-                action_id=action.id,
-                status=ObservationStatus.DENIED,
-                summary=str(exc),
-                metadata={"permission_decision": PermissionDecision.DENY.value},
-                duration_ms=self._duration_ms(started),
-            )
+            return self._error(action, str(exc), started)
         except (PathAccessError, ToolExecutionError, OSError) as exc:
             return self._error(action, str(exc), started)
 

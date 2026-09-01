@@ -16,7 +16,7 @@ from bluewhale_agent.agent.checkpoints import (
 )
 from bluewhale_agent.agent.state import AgentState
 from bluewhale_agent.agent.steering import RuntimeInstruction, RuntimeInstructionQueue
-from bluewhale_agent.context.instructions import InstructionResolver
+from bluewhale_agent.context.instructions import InstructionResolver, ProjectInstructionsError
 from bluewhale_agent.context.manager import ContextBudgetError, ContextManager
 from bluewhale_agent.context.workspace_map import WorkspaceMapBuilder
 from bluewhale_agent.domain.events import EventKind, RunEvent
@@ -622,7 +622,12 @@ class AgentLoop:
         target = action.arguments.get("path")
         if not isinstance(target, str) or not target.strip():
             return False
-        bundle = self._instruction_resolver.resolve_for(target)
+        try:
+            bundle = self._instruction_resolver.resolve_for(target)
+        except ProjectInstructionsError:
+            # The tool registry will turn an unsafe or invalid path into a recoverable
+            # observation. Scoped instruction discovery must not terminate the run first.
+            return False
         sources = tuple(document.source for document in bundle.documents)
         changed = sources != self._instruction_sources
         self._project_instructions = bundle.render()

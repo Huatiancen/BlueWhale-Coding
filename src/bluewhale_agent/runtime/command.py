@@ -104,6 +104,7 @@ class CommandRuntime:
         deadline = started + timeout_seconds
         environment = self._sanitized_environment()
         self._prefer_direct_macos_toolchain(environment)
+        environment["PYTHONHASHSEED"] = "0"
         environment["PYTHONPYCACHEPREFIX"] = str(artifact.with_suffix(".pycache"))
         command_tmp = self._workspace / ".bluewhale" / "tmp"
         command_tmp.mkdir(parents=True, exist_ok=True)
