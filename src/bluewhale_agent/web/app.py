@@ -389,6 +389,16 @@ def create_app(
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    @app.get(
+        "/api/runs/{run_id}/trajectory",
+        response_model=list[StoredEvent],
+    )
+    async def trajectory(run_id: str) -> tuple[StoredEvent, ...]:
+        try:
+            return manager.events(run_id)
+        except RunNotFoundError as error:
+            raise HTTPException(status_code=404, detail=f"Unknown run: {run_id}") from error
+
     return app
 
 

@@ -50,6 +50,10 @@ export function getRun(runId) {
   return request(`/api/runs/${encodeURIComponent(runId)}`);
 }
 
+export function getRunEvents(runId) {
+  return request(`/api/runs/${encodeURIComponent(runId)}/trajectory`);
+}
+
 export function getRunFile(runId, path) {
   const query = new URLSearchParams({ path });
   return request(`/api/runs/${encodeURIComponent(runId)}/files?${query}`);

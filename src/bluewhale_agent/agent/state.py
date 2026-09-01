@@ -65,7 +65,10 @@ class AgentState(BaseModel):
         """Record one execution step and stop when its budget is exhausted."""
         self._require_status(RunStatus.RUNNING, RunStatus.RUNNING)
         self.steps_taken += 1
-        if self.steps_taken >= self.limits.max_steps:
+        if (
+            self.limits.max_steps is not None
+            and self.steps_taken >= self.limits.max_steps
+        ):
             self.status = RunStatus.STOPPED
             self.stop_reason = StopReason.STEP_LIMIT
 

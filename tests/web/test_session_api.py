@@ -94,6 +94,7 @@ async def test_health_create_list_and_get_run(client: httpx.AsyncClient) -> None
     finished = await wait_for_terminal(client, "run-one")
     listed = await client.get("/api/runs")
     fetched = await client.get("/api/runs/run-one")
+    trajectory = await client.get("/api/runs/run-one/trajectory")
 
     assert health.status_code == 200
     assert health.json() == {"status": "ok"}
@@ -103,6 +104,9 @@ async def test_health_create_list_and_get_run(client: httpx.AsyncClient) -> None
     assert finished["final_answer"] == "Inspection complete."
     assert [item["id"] for item in listed.json()] == ["run-one"]
     assert fetched.json() == finished
+    assert trajectory.status_code == 200
+    assert trajectory.json()[0]["event"]["kind"] == "run_started"
+    assert trajectory.json()[-1]["event"]["kind"] == "run_finished"
 
 
 @pytest.mark.asyncio
@@ -513,6 +517,7 @@ async def test_local_history_survives_app_restart_and_replays_events(tmp_path: P
     ) as second_client:
         listed = await second_client.get("/api/runs")
         fetched = await second_client.get("/api/runs/persisted")
+        snapshot = await second_client.get("/api/runs/persisted/trajectory")
         replayed = await second_client.get("/api/runs/persisted/events")
 
     assert created.status_code == 202
@@ -521,6 +526,9 @@ async def test_local_history_survives_app_restart_and_replays_events(tmp_path: P
     assert fetched.json()["workspace_name"] == "workspace"
     assert fetched.json()["workspace_available"] is True
     assert fetched.json()["final_answer"] == "Persisted answer."
+    assert snapshot.status_code == 200
+    assert snapshot.json()[0]["event"]["kind"] == "run_started"
+    assert snapshot.json()[-1]["event"]["kind"] == "run_finished"
     assert [event["event"] for event in parse_sse(replayed.text)][-1] == "run_finished"
 
 

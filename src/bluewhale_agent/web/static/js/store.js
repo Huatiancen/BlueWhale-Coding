@@ -62,11 +62,26 @@ export function addEvent(runId, storedEvent) {
   }
   const next = [...existing, storedEvent].sort((left, right) => left.sequence - right.sequence);
   state.events.set(runId, next);
-  if (storedEvent.event.kind === "state_changed" && storedEvent.event.payload.status) {
+  const run = state.runs.find((item) => item.id === runId);
+  if (
+    !run?.historical &&
+    storedEvent.event.kind === "state_changed" &&
+    storedEvent.event.payload.status
+  ) {
     state.runs = state.runs.map((run) =>
       run.id === runId ? { ...run, status: storedEvent.event.payload.status } : run,
     );
   }
+  notify();
+}
+
+export function setRunEvents(runId, storedEvents) {
+  const unique = new Map();
+  for (const storedEvent of storedEvents) unique.set(storedEvent.sequence, storedEvent);
+  state.events.set(
+    runId,
+    [...unique.values()].sort((left, right) => left.sequence - right.sequence),
+  );
   notify();
 }
 

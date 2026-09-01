@@ -16,6 +16,7 @@ class EventKind(StrEnum):
     STATE_CHANGED = "state_changed"
     MODEL_RESPONSE = "model_response"
     MODEL_DELTA = "model_delta"
+    PROGRESS_CHECKED = "progress_checked"
     PLAN_UPDATED = "plan_updated"
     INSTRUCTIONS_APPLIED = "instructions_applied"
     SKILL_APPLIED = "skill_applied"

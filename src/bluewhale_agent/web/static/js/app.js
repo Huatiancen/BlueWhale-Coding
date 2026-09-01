@@ -3,6 +3,7 @@ import {
   continueRun,
   createRun,
   getRun,
+  getRunEvents,
   getRunFile,
   listRuns,
   queueFollowUp,
@@ -36,6 +37,7 @@ import {
   selectRun,
   setConnectionState,
   setPermissionMode,
+  setRunEvents,
   setRuns,
   state,
   subscribe,
@@ -348,12 +350,24 @@ function startNewTask() {
 
 async function activateRun(runId) {
   const alreadyConnected = state.activeRunId === runId && closeEventStream;
+  const run = state.runs.find((item) => item.id === runId);
   if (!alreadyConnected) {
     closeArtifact();
     selectRun(runId);
-    connectToRun(runId);
+    if (run?.historical) {
+      closeStream();
+      setConnectionState("connecting");
+      try {
+        setRunEvents(runId, await getRunEvents(runId));
+        setConnectionState("idle");
+      } catch (error) {
+        showNotice(error.message, true);
+        setConnectionState("error");
+      }
+    } else {
+      connectToRun(runId);
+    }
   }
-  const run = state.runs.find((item) => item.id === runId);
   try {
     await ensureRunWorkspace(run);
   } catch (error) {

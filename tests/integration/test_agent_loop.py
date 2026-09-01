@@ -721,7 +721,13 @@ async def test_unexpected_component_error_still_persists_terminal_event(tmp_path
 async def test_step_limit_stops_an_endless_tool_loop(tmp_path: Path) -> None:
     (tmp_path / "app.py").write_text("value = 1\n", encoding="utf-8")
     provider = FakeModelProvider(
-        [response(actions=(action("read-1", "read_file", path="app.py"),))]
+        [
+            response(
+                content="I will read the file.",
+                actions=(action("read-1", "read_file", path="app.py"),),
+            ),
+            response(content="The step budget ended after app.py was inspected."),
+        ]
     )
 
     result = await AgentLoop(
@@ -735,6 +741,56 @@ async def test_step_limit_stops_an_endless_tool_loop(tmp_path: Path) -> None:
     assert result.stop_reason is StopReason.STEP_LIMIT
     assert result.steps_taken == 1
     assert len(result.observations) == 1
+    assert result.final_answer == "The step budget ended after app.py was inspected."
+    assert len(provider.calls) == 2
+    assert provider.calls[-1][1] == []
+    assert any(
+        "execution budget" in (message.content or "").lower()
+        for message in provider.calls[-1][0]
+    )
+
+
+@pytest.mark.asyncio
+async def test_default_loop_audits_every_twenty_calls_without_stopping(
+    tmp_path: Path,
+) -> None:
+    tool_responses = [
+        response(
+            actions=(
+                action(f"list-{index}", "list_files", path=".", max_depth=1),
+            )
+        )
+        for index in range(1, 41)
+    ]
+    provider = FakeModelProvider([*tool_responses, response(content="任务完成。")])
+
+    result = await AgentLoop(
+        run_id="progress-audit",
+        workspace=tmp_path,
+        provider=provider,
+    ).run("持续检查直到完成")
+
+    def progress_messages(call_index: int) -> list[str]:
+        return [
+            message.content or ""
+            for message in provider.calls[call_index][0]
+            if message.role is MessageRole.SYSTEM
+            and "Progress checkpoint" in (message.content or "")
+        ]
+
+    assert result.stop_reason is StopReason.COMPLETED
+    assert result.steps_taken == 41
+    assert len(provider.calls) == 41
+    assert progress_messages(19) == []
+    assert "after 20 model calls" in progress_messages(20)[0]
+    assert progress_messages(39) == []
+    assert "after 40 model calls" in progress_messages(40)[0]
+    audits = [
+        stored.event
+        for stored in result.trajectory.events_after(0)
+        if stored.event.kind is EventKind.PROGRESS_CHECKED
+    ]
+    assert [event.payload["model_calls"] for event in audits] == [20, 40]
 
 
 @pytest.mark.asyncio

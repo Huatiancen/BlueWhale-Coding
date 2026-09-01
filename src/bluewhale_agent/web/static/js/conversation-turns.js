@@ -68,13 +68,6 @@ function turnTimeline(turn, revertedChangesets, revertedFiles) {
     .map((stored) => stored.event.payload?.content || "")
     .join("")
     .trim();
-  const completedAnswer = storedEvents.some(
-    (stored) =>
-      stored.event?.kind === "model_response" &&
-      typeof stored.event.payload?.content === "string" &&
-      stored.event.payload.content &&
-      !isProcessModelResponse(stored.event.payload),
-  );
   const deliveredInstructions = new Set(
     storedEvents
       .filter((stored) => stored.event?.kind === "instruction_delivered")
@@ -111,8 +104,11 @@ function turnTimeline(turn, revertedChangesets, revertedFiles) {
     eventIndex: start?.eventIndex ?? firstItem?.eventIndex ?? -1,
   });
 
-  if (!completedAnswer) {
-    const answerDeltas = turn.items.filter(
+  if (!finish) {
+    const lastResponseIndex = turn.items.findLastIndex(
+      ({ stored }) => stored.event?.kind === "model_response",
+    );
+    const answerDeltas = turn.items.slice(lastResponseIndex + 1).filter(
       ({ stored }) =>
         stored.event?.kind === "model_delta" &&
         stored.event.payload?.kind === "answer",
@@ -189,7 +185,68 @@ function turnTimeline(turn, revertedChangesets, revertedFiles) {
       if (path) legacyFiles.add(path);
     }
   }
+  const recoveredAnswer = terminalRecoverySummary(storedEvents, finish);
+  if (recoveredAnswer && !timeline.some((entry) => entry.kind === "assistant")) {
+    const entry = {
+      kind: "assistant",
+      content: recoveredAnswer,
+      eventIndex: finish.eventIndex,
+      recovered: true,
+    };
+    const changesetIndex = timeline.findIndex((item) => item.kind === "changeset");
+    if (changesetIndex === -1) timeline.push(entry);
+    else timeline.splice(changesetIndex, 0, entry);
+  }
   return timeline;
+}
+
+function terminalRecoverySummary(storedEvents, finish) {
+  if (finish?.stored?.event?.payload?.stop_reason !== "step_limit") return "";
+
+  const changeset = storedEvents.findLast(
+    (stored) => stored.event?.kind === "changeset_recorded",
+  );
+  const paths = (changeset?.event?.payload?.files || [])
+    .map((file) => file?.path)
+    .filter((path) => typeof path === "string" && path);
+  const lastCommand = storedEvents.findLast(
+    (stored) =>
+      stored.event?.kind === "observation_received" &&
+      Number.isInteger(stored.event.payload?.observation?.metadata?.exit_code),
+  );
+  const observation = lastCommand?.event?.payload?.observation;
+  const commandSucceeded =
+    observation?.status === "success" && observation.metadata.exit_code === 0;
+  const paragraphs = [
+    paths.length && commandSucceeded ? "本轮修改已完成。" : "本轮执行已结束。",
+  ];
+  if (paths.length) {
+    const files = paths
+      .map((path) => `\`${path.replaceAll("`", "\\`")}\``)
+      .join("、");
+    paragraphs.push(`已修改：${files}。`);
+  }
+
+  if (commandSucceeded) {
+    const testCount = passedTestCount(observation.content);
+    paragraphs.push(
+      testCount === null
+        ? "验证命令执行成功（退出码 0）。"
+        : `验证结果：${testCount} 项测试全部通过（退出码 0）。`,
+    );
+  } else if (observation) {
+    paragraphs.push(`最后一次命令退出码为 ${observation.metadata.exit_code}。`);
+  }
+  paragraphs.push("运行记录随后因达到最大执行步数而停止。");
+  return paragraphs.join("\n\n");
+}
+
+function passedTestCount(content) {
+  if (typeof content !== "string") return null;
+  const unittest = content.match(/\bRan\s+(\d+)\s+tests?\b[\s\S]*\bOK\b/i);
+  if (unittest) return Number(unittest[1]);
+  const pytest = content.match(/\b(\d+)\s+passed\b/i);
+  return pytest ? Number(pytest[1]) : null;
 }
 
 export function isProcessModelResponse(payload) {

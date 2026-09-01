@@ -52,6 +52,25 @@ def test_reaching_step_limit_stops_the_run() -> None:
     assert state.can_continue is False
 
 
+def test_default_limits_do_not_cap_steps_or_wall_time() -> None:
+    limits = Limits()
+
+    assert limits.max_steps is None
+    assert limits.max_wall_time_seconds is None
+    assert limits.progress_check_interval == 20
+
+
+def test_record_step_keeps_running_without_an_explicit_limit() -> None:
+    state = AgentState.start("repair bug")
+    state.mark_running()
+
+    for _ in range(25):
+        state.record_step()
+
+    assert state.status is RunStatus.RUNNING
+    assert state.steps_taken == 25
+
+
 def test_invalid_transition_is_rejected() -> None:
     state = AgentState.start("repair bug", Limits(max_steps=2))
 

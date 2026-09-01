@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  addEvent,
   selectRun,
+  setRunEvents,
   setRuns,
   state,
   toggleProjectCollapsed,
@@ -58,3 +60,30 @@ test("refreshing history preserves an explicitly selected task", () => {
 
   assert.equal(state.activeRunId, "a");
 });
+
+test("historical event hydration preserves the authoritative terminal status", () => {
+  setRuns([{ id: "history", workspace: "/project", historical: true, status: "stopped" }]);
+
+  setRunEvents("history", [
+    stored(1, "state_changed", { status: "running" }),
+    stored(2, "run_finished", { status: "stopped", stop_reason: "step_limit" }),
+  ]);
+
+  assert.equal(state.runs[0].status, "stopped");
+  assert.deepEqual(
+    state.events.get("history").map((item) => item.sequence),
+    [1, 2],
+  );
+});
+
+test("live state changes still update the run summary", () => {
+  setRuns([{ id: "live", workspace: "/project", historical: false, status: "running" }]);
+
+  addEvent("live", stored(1, "state_changed", { status: "verifying" }));
+
+  assert.equal(state.runs[0].status, "verifying");
+});
+
+function stored(sequence, kind, payload) {
+  return { sequence, event: { kind, payload } };
+}

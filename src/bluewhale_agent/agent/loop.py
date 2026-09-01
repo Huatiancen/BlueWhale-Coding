@@ -77,6 +77,14 @@ Use load_skill when an available Skill description matches the task, before foll
 When the task is complete, respond with a concise factual summary and no tool calls.
 """
 
+_PROGRESS_CHECK_PROMPT = """# Progress checkpoint
+This is a non-blocking progress audit after {steps} model calls.
+Review completed work, unresolved errors, and remaining goals before acting.
+Do not repeat an unsuccessful read, command, or edit path without new evidence.
+If the requested changes and verification are complete, call no more tools and give the
+final answer. Otherwise choose the single next action with the highest information gain.
+"""
+
 
 @dataclass(frozen=True)
 class AgentRunResult:
@@ -200,6 +208,7 @@ class AgentLoop:
         )
         self._resume_checkpoint = resume_checkpoint
         self._stream_recovery_attempts = 0
+        self._last_progress_check_step = 0
 
     async def run(self, task: str) -> AgentRunResult:
         """Execute until a deterministic terminal condition is reached."""
@@ -234,6 +243,8 @@ class AgentLoop:
                     return self._finish(StopReason.COMPLETED, verified=None)
                 return await self._verify_changes()
         except _TerminalRun as terminal:
+            if terminal.reason is StopReason.STEP_LIMIT:
+                await self._request_terminal_summary()
             return self._finish(terminal.reason, verified=terminal.verified)
         except asyncio.CancelledError:
             return self._finish(StopReason.USER_STOPPED, verified=None)
@@ -249,6 +260,9 @@ class AgentLoop:
             self._checkpoint(CheckpointPhase.MODEL_REQUEST)
             try:
                 messages = self._build_messages()
+                progress_check = self._progress_check_message()
+                if progress_check is not None:
+                    messages.append(progress_check)
                 tools = self._registry.schemas()
                 stream = getattr(self._provider, "stream", None)
                 if callable(stream):
@@ -351,6 +365,26 @@ class AgentLoop:
             active_skills=self._active_skills,
         )
 
+    def _progress_check_message(self) -> Message | None:
+        """Build one audit instruction at each configured model-call interval."""
+        steps = self._state_required().steps_taken
+        interval = self._limits.progress_check_interval
+        if (
+            steps <= 0
+            or steps % interval != 0
+            or steps <= self._last_progress_check_step
+        ):
+            return None
+        self._last_progress_check_step = steps
+        self._emit(
+            EventKind.PROGRESS_CHECKED,
+            {"model_calls": steps, "interval": interval},
+        )
+        return Message(
+            role=MessageRole.SYSTEM,
+            content=_PROGRESS_CHECK_PROMPT.format(steps=steps),
+        )
+
     def _record_response(self, response: ModelResponse, *, intermediate: bool = False) -> None:
         message = Message(
             role=MessageRole.ASSISTANT,
@@ -360,7 +394,8 @@ class AgentLoop:
         )
         self._history.append(message)
         if response.content:
-            self._final_answer = response.content
+            if not response.tool_calls and response.finish_reason != "tool_calls":
+                self._final_answer = response.content
             self._ledger.record_model_statement(response.content)
         self._emit(
             EventKind.MODEL_RESPONSE,
@@ -373,6 +408,40 @@ class AgentLoop:
             },
         )
         self._checkpoint(CheckpointPhase.MODEL_RESPONSE)
+
+    async def _request_terminal_summary(self) -> None:
+        """Use one tool-free grace call to explain a run stopped by its step budget."""
+        try:
+            messages = self._build_messages()
+            messages.append(
+                Message(
+                    role=MessageRole.SYSTEM,
+                    content=(
+                        "The tool-capable execution budget is exhausted. Do not call tools. "
+                        "Provide a concise factual final summary of completed work, known "
+                        "verification results, and anything still unfinished. Do not claim "
+                        "success without evidence."
+                    ),
+                )
+            )
+            stream = getattr(self._provider, "stream", None)
+            if callable(stream):
+                response = cast(
+                    ModelResponse,
+                    await stream(messages, [], self._record_delta),
+                )
+            else:
+                response = await self._provider.complete(messages, [])
+        except (
+            ContextBudgetError,
+            ModelProtocolError,
+            ProviderRequestError,
+            StreamInterruptedError,
+        ):
+            return
+        if response.tool_calls or not response.content:
+            return
+        self._record_response(response)
 
     def _deliver_pending_instructions(self) -> None:
         self._deliver_instructions(self._instruction_queue.drain())
@@ -631,13 +700,19 @@ class AgentLoop:
 
     def _guard_model_call(self) -> None:
         self._guard_runtime()
-        if self._state_required().steps_taken >= self._limits.max_steps:
+        if (
+            self._limits.max_steps is not None
+            and self._state_required().steps_taken >= self._limits.max_steps
+        ):
             raise _TerminalRun(StopReason.STEP_LIMIT)
 
     def _guard_runtime(self) -> None:
         if self._cancel_event.is_set():
             raise _TerminalRun(StopReason.USER_STOPPED)
-        if self._clock() - self._started_at >= self._limits.max_wall_time_seconds:
+        if (
+            self._limits.max_wall_time_seconds is not None
+            and self._clock() - self._started_at >= self._limits.max_wall_time_seconds
+        ):
             raise _TerminalRun(StopReason.TIME_LIMIT)
 
     def _finish(self, reason: StopReason, *, verified: bool | None) -> AgentRunResult:

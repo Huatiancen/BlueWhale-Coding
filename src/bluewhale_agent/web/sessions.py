@@ -372,6 +372,11 @@ class SessionManager:
                 raise RunNotFoundError(run_id) from None
             return self._historical(record)
 
+    def events(self, run_id: str) -> tuple[StoredEvent, ...]:
+        """Return one ordered trajectory snapshot without opening a live stream."""
+        session = self.get(run_id)
+        return tuple(session.trajectory.events_after(0))
+
     async def stop(self, run_id: str) -> RunSession:
         session = self.get(run_id)
         if isinstance(session, HistoricalSession):

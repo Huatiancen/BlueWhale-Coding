@@ -60,8 +60,9 @@ class Limits(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    max_steps: int = Field(default=20, gt=0)
-    max_wall_time_seconds: int = Field(default=900, gt=0)
+    max_steps: int | None = Field(default=None, gt=0)
+    max_wall_time_seconds: int | None = Field(default=None, gt=0)
+    progress_check_interval: int = Field(default=20, gt=0)
     max_consecutive_format_errors: int = Field(default=3, gt=0)
     max_api_retries: int = Field(default=3, ge=0)
     max_repair_attempts: int = Field(default=3, ge=0)

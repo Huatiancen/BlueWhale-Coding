@@ -77,6 +77,48 @@ test("moves tool-call narration into work and keeps only the final answer in cha
   assert.deepEqual(work.modelNarration, ["我先读取项目文件。"]);
 });
 
+test("step-limit history replaces tool narration with an honest terminal summary", () => {
+  const timeline = conversationTimeline(
+    { task: "运行测试", status: "stopped", stop_reason: "step_limit" },
+    [
+      stored(1, "run_started", { task: "运行测试" }),
+      stored(2, "model_delta", { kind: "answer", content: "现在运行测试。" }),
+      stored(3, "model_response", {
+        content: "现在运行测试。",
+        finish_reason: "tool_calls",
+        tool_calls: [{ id: "run-1", tool_name: "run_command" }],
+      }),
+      stored(4, "observation_received", {
+        observation: {
+          action_id: "run-1",
+          status: "success",
+          summary: "Command exited with code 0: python3",
+          content: "Ran 5 tests in 0.002s\n\nOK\n",
+          metadata: { exit_code: 0 },
+        },
+      }),
+      stored(5, "changeset_recorded", {
+        files: [{ path: "parser.py" }, { path: "report.py" }],
+        additions: 2,
+        deletions: 1,
+      }),
+      stored(6, "run_finished", { status: "stopped", stop_reason: "step_limit" }),
+    ],
+  );
+
+  const answer = timeline.find((entry) => entry.kind === "assistant");
+  assert.match(answer.content, /本轮修改已完成/);
+  assert.match(answer.content, /`parser\.py`、`report\.py`/);
+  assert.match(answer.content, /验证结果：5 项测试全部通过/);
+  assert.match(answer.content, /运行记录随后因达到最大执行步数而停止/);
+  assert.doesNotMatch(answer.content, /当时没有生成最终总结/);
+  assert.equal(answer.recovered, true);
+  assert.deepEqual(
+    timeline.find((entry) => entry.kind === "work").modelNarration,
+    ["现在运行测试。"],
+  );
+});
+
 test("keeps failed turn details inside work instead of the conversation body", () => {
   const timeline = conversationTimeline(
     { task: "运行任务" },
